@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'citizen_access' => [
+        'public_intake_token' => env('CITIZEN_ACCESS_PUBLIC_INTAKE_TOKEN'),
+    ],
+
 ];

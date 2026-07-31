@@ -138,10 +138,13 @@ use App\Domains\TaskManagement\Repositories\WorkTaskRepository;
 use App\Domains\TaskManagement\Repositories\WorkTaskRepositoryInterface;
 use App\Support\Branding\BrandingService;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event as EventFacade;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -360,6 +363,13 @@ class AppServiceProvider extends ServiceProvider
     protected function configureDefaults(): void
     {
         Date::use(CarbonImmutable::class);
+
+        RateLimiter::for('public-intakes', function (Request $request) {
+            return [
+                Limit::perMinute(12)->by($request->ip()),
+                Limit::perHour(60)->by('public-intakes:'.$request->ip()),
+            ];
+        });
 
         DB::prohibitDestructiveCommands(
             app()->isProduction(),

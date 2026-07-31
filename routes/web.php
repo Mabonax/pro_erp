@@ -13,6 +13,9 @@ use App\Domains\BusinessDevelopment\Controllers\BdsDashboardController;
 use App\Domains\BusinessDevelopment\Controllers\BdsIncubateeController;
 use App\Domains\BusinessDevelopment\Controllers\BdsIncubateeKpiController;
 use App\Domains\BusinessDevelopment\Controllers\BdsPitchSessionController;
+use App\Domains\CitizenAccess\Controllers\CitizenAccessAdminController;
+use App\Domains\CitizenAccess\Controllers\IntakeController as CitizenAccessIntakeController;
+use App\Domains\CitizenAccess\Controllers\SupportCaseController as CitizenAccessSupportCaseController;
 use App\Domains\Committees\Controllers\CommitteeController;
 use App\Domains\Compliance\Controllers\ComplianceRegistryController;
 use App\Domains\Documents\Controllers\DocumentLibraryController;
@@ -90,6 +93,33 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('beneficiaries', BeneficiaryController::class)
         ->middlewareFor(['index', 'show'], $viewPermission('beneficiaries'))
         ->middlewareFor(['create', 'store', 'edit', 'update', 'destroy'], $managePermission('beneficiaries'));
+
+    Route::prefix('citizen-access')
+        ->name('citizen-access.')
+        ->middleware($viewPermission('citizen-access'))
+        ->group(function () use ($managePermission) {
+            Route::get('intakes', [CitizenAccessIntakeController::class, 'index'])->name('intakes.index');
+            Route::get('intakes/{intake}', [CitizenAccessIntakeController::class, 'show'])->whereNumber('intake')->name('intakes.show');
+            Route::post('intakes/{intake}/assign', [CitizenAccessIntakeController::class, 'assign'])->middleware($managePermission('citizen-access'))->whereNumber('intake')->name('intakes.assign');
+            Route::post('intakes/{intake}/status', [CitizenAccessIntakeController::class, 'status'])->middleware($managePermission('citizen-access'))->whereNumber('intake')->name('intakes.status');
+            Route::post('intakes/{intake}/convert', [CitizenAccessIntakeController::class, 'convert'])->middleware($managePermission('citizen-access'))->whereNumber('intake')->name('intakes.convert');
+            Route::post('intakes/{intake}/link', [CitizenAccessIntakeController::class, 'link'])->middleware($managePermission('citizen-access'))->whereNumber('intake')->name('intakes.link');
+
+            Route::get('cases', [CitizenAccessSupportCaseController::class, 'index'])->name('cases.index');
+            Route::get('cases/create', [CitizenAccessSupportCaseController::class, 'create'])->middleware($managePermission('citizen-access'))->name('cases.create');
+            Route::post('cases', [CitizenAccessSupportCaseController::class, 'store'])->middleware($managePermission('citizen-access'))->name('cases.store');
+            Route::get('cases/{case}', [CitizenAccessSupportCaseController::class, 'show'])->whereNumber('case')->name('cases.show');
+            Route::post('cases/{case}/template', [CitizenAccessSupportCaseController::class, 'applyTemplate'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.template');
+            Route::post('cases/{case}/readiness', [CitizenAccessSupportCaseController::class, 'recalculate'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.readiness');
+            Route::post('cases/{case}/activities', [CitizenAccessSupportCaseController::class, 'storeActivity'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.activities.store');
+            Route::post('assessment-items/{item}/status', [CitizenAccessSupportCaseController::class, 'assessmentStatus'])->middleware($managePermission('citizen-access'))->whereNumber('item')->name('assessment-items.status');
+
+            Route::get('admin', [CitizenAccessAdminController::class, 'index'])->middleware($managePermission('citizen-access'))->name('admin.index');
+            Route::post('admin/service-streams', [CitizenAccessAdminController::class, 'storeStream'])->middleware($managePermission('citizen-access'))->name('admin.service-streams.store');
+            Route::post('admin/institutions', [CitizenAccessAdminController::class, 'storeInstitution'])->middleware($managePermission('citizen-access'))->name('admin.institutions.store');
+            Route::post('admin/opportunities', [CitizenAccessAdminController::class, 'storeOpportunity'])->middleware($managePermission('citizen-access'))->name('admin.opportunities.store');
+            Route::post('admin/templates', [CitizenAccessAdminController::class, 'storeTemplate'])->middleware($managePermission('citizen-access'))->name('admin.templates.store');
+        });
 
     Route::get('business-development', BdsDashboardController::class)
         ->middleware('permission:domain.business-development.view|domain.business-development.manage')

@@ -47,6 +47,7 @@ return [
         'outcomes',
         'service-delivery',
         'intelligence',
+        'citizen-access',
     ],
 
     'department_domain_map' => [
@@ -57,7 +58,7 @@ return [
         'business development' => ['organization', 'beneficiaries', 'stakeholders', 'projects', 'programs', 'business-development', 'task-management', 'events'],
         'governance' => ['organization', 'governance', 'committees', 'meetings', 'resolutions', 'policies', 'reporting'],
         'compliance' => ['organization', 'compliance', 'reporting', 'public-benefit-organisation'],
-        'programme management' => ['organization', 'programs', 'projects', 'beneficiaries', 'volunteers', 'monitoring-evaluation', 'reporting', 'placements', 'partnerships', 'outcomes', 'service-delivery'],
+        'programme management' => ['organization', 'programs', 'projects', 'beneficiaries', 'volunteers', 'monitoring-evaluation', 'reporting', 'placements', 'partnerships', 'outcomes', 'service-delivery', 'citizen-access'],
         'funding' => ['organization', 'funding', 'donors', 'grants', 'reporting'],
         'human capital' => ['organization', 'members', 'geography', 'human-capital', 'qualifications', 'skills', 'employment', 'reporting'],
         'strategy' => ['organization', 'reporting', 'intelligence'],
