@@ -31,6 +31,12 @@ const mainNavItems: NavItem[] = [
         requiredPermissions: ['domain.beneficiaries.view', 'domain.beneficiaries.manage'],
     },
     {
+        title: 'Citizen Access',
+        href: '/citizen-access/intakes',
+        icon: LifeBuoy,
+        requiredPermissions: ['domain.citizen-access.view', 'domain.citizen-access.manage'],
+    },
+    {
         title: 'Stakeholders',
         href: '/stakeholders',
         icon: UserCircle,

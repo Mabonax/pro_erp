@@ -256,6 +256,8 @@ class AccessControlSeeder extends Seeder
                 'domain.projects.manage',
                 'domain.beneficiaries.view',
                 'domain.beneficiaries.manage',
+                'domain.citizen-access.view',
+                'domain.citizen-access.manage',
                 'domain.volunteers.view',
                 'domain.volunteers.manage',
                 'domain.monitoring-evaluation.view',
