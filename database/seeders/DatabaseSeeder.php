@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             AdjudicationSectionsSeeder::class,
             SuperAdminUserSeeder::class,
             OrganizationEventsSeeder::class,
+            CitizenAccessSeeder::class,
         ]);
 
         if (app()->environment(['local', 'development'])) {
