@@ -312,7 +312,8 @@ jobs:
           previous_sha="$(git rev-parse HEAD)"
           git diff --quiet
           git diff --cached --quiet
-          git fetch --prune origin "$TARGET_SHA"
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          git cat-file -e "$TARGET_SHA^{commit}"
           git checkout --detach "$TARGET_SHA"
           php artisan down --render=errors::503 --retry=60 || true
           composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
@@ -372,7 +373,8 @@ jobs:
           git diff --cached --quiet
           grep -Eq '^POA_ERP_BASE_URL=.' .env
           grep -Eq '^POA_ERP_PUBLIC_INTAKE_TOKEN=.' .env
-          git fetch --prune origin "$TARGET_SHA"
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          git cat-file -e "$TARGET_SHA^{commit}"
           git checkout --detach "$TARGET_SHA"
           php artisan down --render=errors::503 --retry=60 || true
           composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
