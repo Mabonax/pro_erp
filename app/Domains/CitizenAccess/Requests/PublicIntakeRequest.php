@@ -26,7 +26,7 @@ class PublicIntakeRequest extends FormRequest
             'preferred_delivery_channel' => ['nullable', Rule::in(['phone', 'online', 'community_site', 'office_visit'])],
             'preferred_contact_method' => ['required', Rule::in(['phone', 'sms', 'whatsapp', 'email'])],
             'selected_needs' => ['required', 'array', 'min:1', 'max:12'],
-            'selected_needs.*' => ['string', 'max:100'],
+            'selected_needs.*' => ['string', 'max:160', 'distinct'],
             'current_position' => ['nullable', 'string', 'max:120'],
             'assistance_description' => ['nullable', 'string', 'max:2000'],
             'preferred_contact_time' => ['nullable', 'string', 'max:80'],

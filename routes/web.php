@@ -118,6 +118,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('admin/service-streams', [CitizenAccessAdminController::class, 'storeStream'])->middleware($managePermission('citizen-access'))->name('admin.service-streams.store');
             Route::post('admin/institutions', [CitizenAccessAdminController::class, 'storeInstitution'])->middleware($managePermission('citizen-access'))->name('admin.institutions.store');
             Route::post('admin/opportunities', [CitizenAccessAdminController::class, 'storeOpportunity'])->middleware($managePermission('citizen-access'))->name('admin.opportunities.store');
+            Route::put('admin/opportunities/{opportunity}', [CitizenAccessAdminController::class, 'updateOpportunity'])->middleware($managePermission('citizen-access'))->whereNumber('opportunity')->name('admin.opportunities.update');
             Route::post('admin/templates', [CitizenAccessAdminController::class, 'storeTemplate'])->middleware($managePermission('citizen-access'))->name('admin.templates.store');
         });
 

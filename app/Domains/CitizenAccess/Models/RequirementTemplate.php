@@ -21,4 +21,11 @@ class RequirementTemplate extends Model
     {
         return $this->hasMany(RequirementTemplateVersion::class, 'template_id');
     }
+
+    public function latestPublishedVersion()
+    {
+        return $this->hasOne(RequirementTemplateVersion::class, 'template_id')
+            ->where('status', 'published')
+            ->latestOfMany('version_number');
+    }
 }

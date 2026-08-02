@@ -11,7 +11,7 @@ class SupportCase extends Model
 {
     protected $table = 'citizen_access_support_cases';
 
-    protected $fillable = ['case_reference', 'beneficiary_id', 'intake_id', 'program_id', 'project_id', 'service_stream_id', 'institution_id', 'opportunity_id', 'application_cycle_id', 'assigned_to_user_id', 'priority', 'stage', 'readiness_state', 'readiness_percentage', 'eligibility_indication', 'readiness_reasons', 'important_deadline', 'closure_reason', 'closed_at', 'closed_by_user_id'];
+    protected $fillable = ['case_reference', 'beneficiary_id', 'intake_id', 'program_id', 'project_id', 'project_location_id', 'service_stream_id', 'institution_id', 'opportunity_id', 'application_cycle_id', 'assigned_to_user_id', 'priority', 'stage', 'readiness_state', 'readiness_percentage', 'eligibility_indication', 'readiness_reasons', 'important_deadline', 'closure_reason', 'closed_at', 'closed_by_user_id'];
 
     protected $casts = ['readiness_percentage' => 'integer', 'readiness_reasons' => 'array', 'important_deadline' => 'date:Y-m-d', 'closed_at' => 'datetime'];
 
@@ -28,6 +28,11 @@ class SupportCase extends Model
     public function serviceStream(): BelongsTo
     {
         return $this->belongsTo(ServiceStream::class, 'service_stream_id');
+    }
+
+    public function opportunity(): BelongsTo
+    {
+        return $this->belongsTo(Opportunity::class, 'opportunity_id');
     }
 
     public function assessmentItems(): HasMany

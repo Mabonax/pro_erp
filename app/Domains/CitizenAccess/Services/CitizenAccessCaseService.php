@@ -24,6 +24,7 @@ class CitizenAccessCaseService
                 'intake_id' => $data['intake_id'] ?? null,
                 'program_id' => $data['program_id'] ?? null,
                 'project_id' => $data['project_id'] ?? null,
+                'project_location_id' => $data['project_location_id'] ?? null,
                 'service_stream_id' => $data['service_stream_id'],
                 'institution_id' => $data['institution_id'] ?? null,
                 'opportunity_id' => $data['opportunity_id'] ?? null,

@@ -81,6 +81,9 @@ class SupportCaseController extends Controller
         $validated = $request->validate([
             'beneficiary_id' => ['required', 'integer', 'exists:beneficiaries,id'],
             'intake_id' => ['nullable', 'integer', 'exists:citizen_access_intakes,id'],
+            'program_id' => ['nullable', 'integer', 'exists:programs,id'],
+            'project_id' => ['nullable', 'integer', 'exists:projects,id'],
+            'project_location_id' => ['nullable', 'integer', 'exists:project_locations,id'],
             'service_stream_id' => ['required', 'integer', 'exists:citizen_access_service_streams,id'],
             'institution_id' => ['nullable', 'integer', 'exists:citizen_access_institutions,id'],
             'opportunity_id' => ['nullable', 'integer', 'exists:citizen_access_opportunities,id'],

@@ -19,7 +19,7 @@ class IntakeController extends Controller
 
     public function index(Request $request): Response
     {
-        $query = Intake::query()->with(['needs.stream', 'assignedTo:id,name'])->latest();
+        $query = Intake::query()->with(['needs.stream', 'needs.opportunity:id,public_slug,public_title', 'assignedTo:id,name'])->latest();
 
         if ($search = trim((string) $request->query('search', ''))) {
             $query->where(function ($builder) use ($search) {
@@ -42,7 +42,7 @@ class IntakeController extends Controller
 
     public function show(Intake $intake): Response
     {
-        $intake->load(['needs.stream', 'assignedTo:id,name', 'convertedBeneficiary:id,name,surname,email,phone']);
+        $intake->load(['needs.stream', 'needs.opportunity:id,public_slug,public_title', 'assignedTo:id,name', 'convertedBeneficiary:id,name,surname,email,phone']);
 
         return Inertia::render('CitizenAccess/Intakes/Show', [
             'intake' => $this->mapIntake($intake) + [
@@ -89,8 +89,9 @@ class IntakeController extends Controller
     public function convert(Request $request, Intake $intake): RedirectResponse
     {
         $validated = $request->validate([
-            'project_id' => ['required', 'integer', 'exists:projects,id'],
+            'project_id' => ['nullable', 'integer', 'exists:projects,id'],
             'program_id' => ['nullable', 'integer', 'exists:programs,id'],
+            'project_location_id' => ['nullable', 'integer', 'exists:project_locations,id'],
             'province_id' => ['nullable', 'integer', 'exists:provinces,id'],
         ]);
 
@@ -120,7 +121,11 @@ class IntakeController extends Controller
             'email' => $intake->email,
             'province' => $intake->province,
             'municipality' => $intake->municipality,
-            'needs' => $intake->needs->map(fn ($need) => ['key' => $need->need_key, 'label' => $need->label])->values(),
+            'needs' => $intake->needs->map(fn ($need) => [
+                'key' => $need->need_key,
+                'label' => $need->label,
+                'opportunity_slug' => $need->opportunity?->public_slug,
+            ])->values(),
             'assigned_to' => $intake->assignedTo?->name,
             'created_at' => $intake->created_at?->format('Y-m-d H:i'),
             'age_days' => $intake->created_at ? $intake->created_at->diffInDays(now()) : 0,
