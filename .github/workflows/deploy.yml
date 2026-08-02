@@ -109,8 +109,8 @@ jobs:
       - name: Run ERP frontend checks
         working-directory: erp
         run: |
-          npm run types
           npm run build
+          npm run types
 
       - name: Run ERP tests
         working-directory: erp
@@ -201,6 +201,27 @@ jobs:
           } >> .env
           php artisan key:generate --force
           php artisan config:clear
+          mkdir -p config
+          cat > config/inertia.php <<'PHP'
+          <?php
+
+          return [
+              'testing' => [
+                  'ensure_pages_exist' => true,
+                  'page_paths' => [
+                      resource_path('js/pages'),
+                  ],
+                  'page_extensions' => [
+                      'js',
+                      'jsx',
+                      'svelte',
+                      'ts',
+                      'tsx',
+                      'vue',
+                  ],
+              ],
+          ];
+          PHP
 
       - name: Run website frontend checks
         working-directory: website
