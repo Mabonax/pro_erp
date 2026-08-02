@@ -106,15 +106,15 @@ jobs:
           php artisan key:generate --force
           php artisan config:clear
 
-      - name: Run ERP tests
-        working-directory: erp
-        run: php artisan test
-
       - name: Run ERP frontend checks
         working-directory: erp
         run: |
           npm run types
           npm run build
+
+      - name: Run ERP tests
+        working-directory: erp
+        run: php artisan test
 
       - name: Package ERP Vite build
         working-directory: erp
@@ -202,14 +202,14 @@ jobs:
           php artisan key:generate --force
           php artisan config:clear
 
-      - name: Run website tests
-        working-directory: website
-        run: php artisan test
-
       - name: Run website frontend checks
         working-directory: website
         run: |
           npm run build
+
+      - name: Run website tests
+        working-directory: website
+        run: php artisan test
 
       - name: Package website Vite build
         working-directory: website
