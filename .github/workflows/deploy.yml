@@ -1,109 +1,441 @@
-name: Deploy
+name: Production release
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      erp_ref:
+        description: ERP branch, tag, or commit to deploy
+        required: true
+        default: program-of-action-erp
+        type: string
+      website_ref:
+        description: Public website branch, tag, or commit to deploy
+        required: true
+        default: main
+        type: string
+      allow_merge_commit:
+        description: Allow deploying a merge commit
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
 
 concurrency:
-  group: deploy-production
+  group: poa-production-release
   cancel-in-progress: false
 
 env:
-  REGISTRY: ghcr.io
-  APP_IMAGE_NAME: mabonax/poa_erp-app
-  WEB_IMAGE_NAME: mabonax/poa_erp-web
+  PHP_VERSION: '8.3'
+  NODE_VERSION: '22'
+  ERP_URL: https://erp.programofaction.org
+  WEBSITE_URL: https://programofaction.org
+  WEBSITE_REPOSITORY: Mabonax/poa_blog-
 
 jobs:
-  build-and-push:
+  build-erp:
+    name: Build and test ERP
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    timeout-minutes: 30
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
     steps:
-      - name: Checkout repository
+      - name: Checkout ERP
         uses: actions/checkout@v5
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ inputs.erp_ref }}
+          path: erp
+          persist-credentials: false
 
-      - name: Extract app image metadata
-        id: meta-app
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.APP_IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=sha-${{ github.sha }}
+      - name: Resolve ERP revision
+        id: revision
+        working-directory: erp
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Extract web image metadata
-        id: meta-web
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=sha-${{ github.sha }}
+      - name: Refuse merge commit unless approved
+        if: ${{ ! inputs.allow_merge_commit }}
+        working-directory: erp
+        run: |
+          parents="$(git rev-list --parents -n 1 HEAD | wc -w)"
+          if [ "$parents" -gt 2 ]; then
+            echo "::error::ERP target is a merge commit. Re-run with allow_merge_commit=true only after review."
+            exit 1
+          fi
 
-      - name: Build and push app image
-        uses: docker/build-push-action@v6
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
         with:
-          context: .
-          target: app
-          push: true
-          tags: ${{ steps.meta-app.outputs.tags }}
-          labels: ${{ steps.meta-app.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, pdo_sqlite, sqlite3, dom, curl, intl
+          coverage: none
+          tools: composer:v2
 
-      - name: Build and push web image
-        uses: docker/build-push-action@v6
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          context: .
-          target: web
-          push: true
-          tags: ${{ steps.meta-web.outputs.tags }}
-          labels: ${{ steps.meta-web.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: erp/package-lock.json
+
+      - name: Install PHP dependencies
+        working-directory: erp
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Install frontend dependencies
+        working-directory: erp
+        run: npm ci
+
+      - name: Prepare test environment
+        working-directory: erp
+        run: |
+          cp .env.example .env
+          mkdir -p database bootstrap/cache
+          touch database/database.sqlite
+          {
+            echo "APP_ENV=testing"
+            echo "APP_URL=http://localhost"
+            echo "DB_CONNECTION=sqlite"
+            echo "DB_DATABASE=${GITHUB_WORKSPACE}/erp/database/database.sqlite"
+            echo "CACHE_STORE=array"
+            echo "QUEUE_CONNECTION=sync"
+            echo "SESSION_DRIVER=array"
+            echo "MAIL_MAILER=log"
+            echo "CITIZEN_ACCESS_PUBLIC_INTAKE_TOKEN=test-token"
+          } >> .env
+          php artisan key:generate --force
+          php artisan config:clear
+
+      - name: Run ERP tests
+        working-directory: erp
+        run: php artisan test
+
+      - name: Run ERP frontend checks
+        working-directory: erp
+        run: |
+          npm run types
+          npm run build
+
+      - name: Package ERP Vite build
+        working-directory: erp
+        run: |
+          test -f public/build/manifest.json
+          (cd public/build && zip -qr "$RUNNER_TEMP/erp-public-build.zip" .)
+
+      - name: Upload ERP build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-public-build
+          path: ${{ runner.temp }}/erp-public-build.zip
+          if-no-files-found: error
+
+  build-website:
+    name: Build and test public website
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - name: Checkout public website
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.WEBSITE_REPOSITORY }}
+          ref: ${{ inputs.website_ref }}
+          path: website
+          token: ${{ secrets.POA_WEBSITE_REPOSITORY_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Resolve website revision
+        id: revision
+        working-directory: website
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse merge commit unless approved
+        if: ${{ ! inputs.allow_merge_commit }}
+        working-directory: website
+        run: |
+          parents="$(git rev-list --parents -n 1 HEAD | wc -w)"
+          if [ "$parents" -gt 2 ]; then
+            echo "::error::Website target is a merge commit. Re-run with allow_merge_commit=true only after review."
+            exit 1
+          fi
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, pdo_sqlite, sqlite3, dom, curl, intl
+          coverage: none
+          tools: composer:v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install PHP dependencies
+        working-directory: website
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Install frontend dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Prepare test environment
+        working-directory: website
+        run: |
+          cp .env.example .env
+          mkdir -p database bootstrap/cache
+          touch database/database.sqlite
+          {
+            echo "APP_ENV=testing"
+            echo "APP_URL=http://localhost"
+            echo "DB_CONNECTION=sqlite"
+            echo "DB_DATABASE=${GITHUB_WORKSPACE}/website/database/database.sqlite"
+            echo "CACHE_STORE=array"
+            echo "QUEUE_CONNECTION=sync"
+            echo "SESSION_DRIVER=array"
+            echo "MAIL_MAILER=log"
+          } >> .env
+          php artisan key:generate --force
+          php artisan config:clear
+
+      - name: Run website tests
+        working-directory: website
+        run: php artisan test
+
+      - name: Run website frontend checks
+        working-directory: website
+        run: |
+          npm run build
+
+      - name: Package website Vite build
+        working-directory: website
+        run: |
+          test -f public/build/manifest.json
+          (cd public/build && zip -qr "$RUNNER_TEMP/website-public-build.zip" .)
+
+      - name: Upload website build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-public-build
+          path: ${{ runner.temp }}/website-public-build.zip
+          if-no-files-found: error
 
   deploy-production:
+    name: Deploy ERP then public website
     runs-on: ubuntu-latest
-    needs: build-and-push
+    timeout-minutes: 45
+    needs:
+      - build-erp
+      - build-website
     environment:
       name: production
+      url: https://programofaction.org
+    permissions:
+      contents: read
     env:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      APP_RUNTIME_IMAGE: ${{ env.REGISTRY }}/${{ env.APP_IMAGE_NAME }}:sha-${{ github.sha }}
-      WEB_RUNTIME_IMAGE: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}:sha-${{ github.sha }}
-
+      SSH_HOST: ${{ secrets.POA_DEPLOY_HOST }}
+      SSH_PORT: ${{ secrets.POA_DEPLOY_PORT || '22' }}
+      SSH_USER: ${{ secrets.POA_DEPLOY_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.POA_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.POA_DEPLOY_KNOWN_HOSTS }}
+      ERP_PATH: ${{ vars.POA_ERP_PATH || secrets.POA_ERP_PATH }}
+      WEBSITE_PATH: ${{ vars.POA_WEBSITE_PATH || secrets.POA_WEBSITE_PATH }}
+      ERP_SHA: ${{ needs.build-erp.outputs.sha }}
+      WEBSITE_SHA: ${{ needs.build-website.outputs.sha }}
+      ERP_PUBLIC_INTAKE_TOKEN: ${{ secrets.POA_ERP_PUBLIC_INTAKE_TOKEN }}
     steps:
-      - name: Skip deploy when secrets are missing
-        if: ${{ env.SSH_HOST == '' || env.SSH_USER == '' || env.SSH_PRIVATE_KEY == '' || env.DEPLOY_PATH == '' || env.GHCR_USERNAME == '' || env.GHCR_TOKEN == '' }}
-        run: echo "Deployment secrets are incomplete. Skipping Ubuntu rollout."
+      - name: Validate deployment configuration
+        run: |
+          missing=0
+          for name in SSH_HOST SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS ERP_PATH WEBSITE_PATH ERP_PUBLIC_INTAKE_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured."
+              missing=1
+            fi
+          done
+          exit "$missing"
 
-      - name: Deploy over SSH
-        if: ${{ env.SSH_HOST != '' && env.SSH_USER != '' && env.SSH_PRIVATE_KEY != '' && env.DEPLOY_PATH != '' && env.GHCR_USERNAME != '' && env.GHCR_TOKEN != '' }}
+      - name: Download ERP build
+        uses: actions/download-artifact@v5
+        with:
+          name: erp-public-build
+          path: artifacts
+
+      - name: Download website build
+        uses: actions/download-artifact@v5
+        with:
+          name: website-public-build
+          path: artifacts
+
+      - name: Configure SSH
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/id_ed25519 -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "cd '$DEPLOY_PATH' && \
-             GHCR_USERNAME='$GHCR_USERNAME' GHCR_TOKEN='$GHCR_TOKEN' APP_RUNTIME_IMAGE='$APP_RUNTIME_IMAGE' WEB_RUNTIME_IMAGE='$WEB_RUNTIME_IMAGE' bash scripts/deployment/deploy-release.sh"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload build artifacts
+        run: |
+          scp -P "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes artifacts/erp-public-build.zip "$SSH_USER@$SSH_HOST:/tmp/poa-erp-build-${GITHUB_RUN_ID}.zip"
+          scp -P "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes artifacts/website-public-build.zip "$SSH_USER@$SSH_HOST:/tmp/poa-website-build-${GITHUB_RUN_ID}.zip"
+
+      - name: Acquire production deployment lock
+        run: |
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
+            "mkdir \"\$HOME/.poa-production-release.lock\" || { echo 'Another POA production deployment is already running.' >&2; exit 75; }"
+
+      - name: Deploy ERP
+        run: |
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_PATH='$ERP_PATH' TARGET_SHA='$ERP_SHA' ASSET_ZIP='/tmp/poa-erp-build-${GITHUB_RUN_ID}.zip' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          previous_sha=""
+          migrations_completed=0
+          cleanup() {
+            status=$?
+            php artisan up >/dev/null 2>&1 || true
+            if [ "$status" -ne 0 ] && [ "$migrations_completed" -eq 0 ] && [ -n "$previous_sha" ]; then
+              git checkout --detach "$previous_sha" >/dev/null 2>&1 || true
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          cd "$DEPLOY_PATH"
+          expected="$(cd "$DEPLOY_PATH" && pwd -P)"
+          resolved="$(pwd -P)"
+          test "$resolved" = "$expected"
+          previous_sha="$(git rev-parse HEAD)"
+          git diff --quiet
+          git diff --cached --quiet
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          git cat-file -e "$TARGET_SHA^{commit}"
+          git checkout --detach "$TARGET_SHA"
+          php artisan down --render=errors::503 --retry=60 || true
+          composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+          php artisan migrate --force
+          migrations_completed=1
+          php artisan optimize:clear
+          php artisan optimize
+          mkdir -p public/build
+          unzip -oq "$ASSET_ZIP" -d public/build
+          test -f public/build/manifest.json
+          chmod -R ug+rw storage bootstrap/cache 2>/dev/null || true
+          php artisan up
+          printf '%s\n' "$previous_sha" > storage/app/previous-deploy-sha.txt
+          printf '%s\n' "$TARGET_SHA" > storage/app/current-deploy-sha.txt
+          REMOTE
+
+      - name: Verify ERP health
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys, urllib.request
+          token = os.environ["ERP_PUBLIC_INTAKE_TOKEN"]
+          req = urllib.request.Request(os.environ["ERP_URL"] + "/api/public/v1/offerings", headers={"Accept": "application/json", "Authorization": f"Bearer {token}"})
+          try:
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  body = response.read()
+                  data = json.loads(body)
+                  if response.status < 200 or response.status >= 300 or not isinstance(data.get("data"), list):
+                      raise RuntimeError("Offerings response was not successful safe JSON.")
+          except Exception as exc:
+              print(f"::error::ERP offerings health check failed: {exc}")
+              sys.exit(1)
+          for path in ["/citizen-access/intakes", "/citizen-access/cases", "/citizen-access/admin", "/access-control/roles"]:
+              code = subprocess.check_output(["curl", "-sS", "-o", "/tmp/poa-health-body", "-w", "%{http_code}", os.environ["ERP_URL"] + path], text=True).strip()
+              if code in {"404", "500"} or code.startswith("5"):
+                  print(f"::error::ERP route {path} returned HTTP {code}.")
+                  sys.exit(1)
+          PY
+
+      - name: Deploy public website
+        run: |
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_PATH='$WEBSITE_PATH' TARGET_SHA='$WEBSITE_SHA' ASSET_ZIP='/tmp/poa-website-build-${GITHUB_RUN_ID}.zip' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          previous_sha=""
+          cleanup() {
+            status=$?
+            php artisan up >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+          cd "$DEPLOY_PATH"
+          expected="$(cd "$DEPLOY_PATH" && pwd -P)"
+          resolved="$(pwd -P)"
+          test "$resolved" = "$expected"
+          previous_sha="$(git rev-parse HEAD)"
+          git diff --quiet
+          git diff --cached --quiet
+          grep -Eq '^POA_ERP_BASE_URL=.' .env
+          grep -Eq '^POA_ERP_PUBLIC_INTAKE_TOKEN=.' .env
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          git cat-file -e "$TARGET_SHA^{commit}"
+          git checkout --detach "$TARGET_SHA"
+          php artisan down --render=errors::503 --retry=60 || true
+          composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+          if find database/migrations -type f -name '*.php' | grep -q .; then
+            php artisan migrate --force
+          fi
+          mkdir -p public/build
+          unzip -oq "$ASSET_ZIP" -d public/build
+          test -f public/build/manifest.json
+          php artisan optimize:clear
+          php artisan optimize
+          chmod -R ug+rw storage bootstrap/cache 2>/dev/null || true
+          php artisan up
+          printf '%s\n' "$previous_sha" > storage/app/previous-deploy-sha.txt
+          printf '%s\n' "$TARGET_SHA" > storage/app/current-deploy-sha.txt
+          REMOTE
+
+      - name: Verify public website health
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys, urllib.request
+          urls = [
+              os.environ["WEBSITE_URL"],
+              os.environ["WEBSITE_URL"] + "/get-assistance",
+              os.environ["WEBSITE_URL"] + "/get-assistance?offering=nsfas-applications-2027",
+          ]
+          for url in urls:
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "text/html"}), timeout=20) as response:
+                      body = response.read().decode("utf-8", "replace")
+                      if response.status >= 500:
+                          raise RuntimeError(f"HTTP {response.status}")
+                      if "/get-assistance" in url and "Get Assistance" not in body:
+                          raise RuntimeError("Get Assistance content was not present.")
+                      if "offering=nsfas-applications-2027" in url and "nsfas-applications-2027" not in body:
+                          raise RuntimeError("Expected offering preselection slug was not rendered.")
+              except Exception as exc:
+                  print(f"::error::Website health check failed for {url}: {exc}")
+                  sys.exit(1)
+          home = subprocess.check_output(["curl", "-sS", os.environ["WEBSITE_URL"]], text=True)
+          if "Get Assistance" not in home:
+              print("::error::Get Assistance is not exposed in public navigation.")
+              sys.exit(1)
+          PY
+
+      - name: Release deployment lock
+        if: always()
+        run: |
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
+            "rmdir \"\$HOME/.poa-production-release.lock\" 2>/dev/null || true; rm -f '/tmp/poa-erp-build-${GITHUB_RUN_ID}.zip' '/tmp/poa-website-build-${GITHUB_RUN_ID}.zip'"
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "## Program of Action production release"
+            echo
+            echo "| Application | Commit | URL |"
+            echo "| --- | --- | --- |"
+            echo "| ERP | \`$ERP_SHA\` | $ERP_URL |"
+            echo "| Public website | \`$WEBSITE_SHA\` | $WEBSITE_URL |"
+            echo
+            echo "ERP is deployed and verified before the public website job starts. Production .env files remain on the server and are not printed or copied."
+          } >> "$GITHUB_STEP_SUMMARY"
