@@ -444,6 +444,10 @@ jobs:
       - name: Release deployment lock
         if: always()
         run: |
+          if [ ! -s ~/.ssh/id_ed25519 ] || [ ! -s ~/.ssh/known_hosts ]; then
+            echo "SSH was not configured; no remote deployment lock cleanup is required."
+            exit 0
+          fi
           ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
             "rmdir \"\$HOME/.poa-production-release.lock\" 2>/dev/null || true; rm -f '/tmp/poa-erp-build-${GITHUB_RUN_ID}.zip' '/tmp/poa-website-build-${GITHUB_RUN_ID}.zip'"
 
