@@ -1,5 +1,7 @@
 # Production release process
 
+> Superseded: GitHub-hosted runners cannot reliably SSH into Afrihost/cPanel from outside South Africa. The current production release design is pull-based and is documented in `docs/deployment/pull-based-production-release.md`.
+
 Program of Action production releases are coordinated from the ERP repository through `.github/workflows/deploy.yml`. The workflow is manual only and deploys to the Afrihost shared server over SSH. Docker and server-side npm are deliberately not used.
 
 ## Architecture

@@ -1,5 +1,7 @@
 # CI/CD and deployment pipeline replication report
 
+> Superseded: this report documents the earlier SSH-push pipeline. Afrihost/cPanel shell access does not support GitHub-hosted runner SSH deployment reliably for this project, so the current production pattern is the pull-based release system documented in `docs/deployment/pull-based-production-release.md`.
+
 This report documents the production deployment pattern implemented for the Program of Action ERP and public website. It is written so the same pattern can be reused in other Laravel/Inertia projects that deploy to shared hosting over SSH.
 
 ## 1. Executive summary
