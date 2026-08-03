@@ -102,6 +102,22 @@ asset_api_url() {
   ' "$release_file" "$asset_name"
 }
 
+manifest_asset_name() {
+  local release_file="$1"
+  "$PHP_BIN" -r '
+    $release = json_decode(file_get_contents($argv[1]), true);
+    if (!is_array($release)) { fwrite(STDERR, "Invalid release JSON\n"); exit(2); }
+    foreach (($release["assets"] ?? []) as $asset) {
+      $name = (string) ($asset["name"] ?? "");
+      if (preg_match("/^poa-production-.+-manifest\\.json$/", $name)) {
+        echo $name;
+        exit(0);
+      }
+    }
+    exit(6);
+  ' "$release_file"
+}
+
 download_asset() {
   local release_file="$1"
   local asset_name="$2"
@@ -357,14 +373,7 @@ main() {
   latest_release_json > "$work/releases.json"
   select_release "$work/releases.json" > "$work/release.json" || die "No approved release found with prefix $RELEASE_TAG_PREFIX"
   local manifest_name
-  manifest_name="$(json_extract "$work/release.json" assets | "$PHP_BIN" -r '
-    $assets = json_decode(stream_get_contents(STDIN), true);
-    foreach ($assets as $asset) {
-      $name = (string) ($asset["name"] ?? "");
-      if (preg_match("/^poa-production-.+-manifest\\.json$/", $name)) { echo $name; exit(0); }
-    }
-    exit(6);
-  ')" || die "Release manifest asset not found"
+  manifest_name="$(manifest_asset_name "$work/release.json")" || die "Release manifest asset not found"
   download_asset "$work/release.json" "$manifest_name" "$work/manifest.json"
   validate_manifest "$work/manifest.json"
 
