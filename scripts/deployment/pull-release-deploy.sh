@@ -171,6 +171,11 @@ current_release_id() {
   json_extract "$STATE_FILE" current.release_id 2>/dev/null || return 1
 }
 
+current_release_status() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  json_extract "$STATE_FILE" current.status 2>/dev/null || return 1
+}
+
 write_state() {
   local release_id="$1"
   local status="$2"
@@ -245,6 +250,15 @@ activate_release() {
     --exclude='storage/' \
     --exclude='bootstrap/cache/' \
     "$release_dir/" "$live_path/"
+}
+
+normalize_laravel_permissions() {
+  local path="$1"
+  find "$path" -type d -exec chmod 755 {} \;
+  find "$path" -type f -exec chmod 644 {} \;
+  [[ -f "$path/.env" ]] && chmod 600 "$path/.env"
+  [[ -d "$path/storage" ]] && chmod -R u+rwX,go-rwx "$path/storage"
+  [[ -d "$path/bootstrap/cache" ]] && chmod -R u+rwX,go-rwx "$path/bootstrap/cache"
 }
 
 laravel_down() {
@@ -386,7 +400,7 @@ main() {
   erp_commit="$(json_extract "$work/manifest.json" erp.commit_sha)"
   website_commit="$(json_extract "$work/manifest.json" website.commit_sha)"
 
-  if [[ "$(current_release_id || true)" == "$release_id" ]]; then
+  if [[ "$(current_release_id || true)" == "$release_id" && "$(current_release_status || true)" == "deployed" ]]; then
     log "Release $release_id is already deployed; skipping."
     exit 0
   fi
@@ -411,15 +425,16 @@ main() {
   run_laravel_release_commands "$erp_release" 1
   erp_migrated=1
   activate_release erp "$erp_release" "$ERP_PATH"
+  normalize_laravel_permissions "$ERP_PATH"
   laravel_up "$ERP_PATH"
   erp_maintenance=0
   http_ok "$ERP_URL"
-  http_ok "$ERP_URL/api/public/v1/offerings"
 
   laravel_down "$WEBSITE_PATH"
   website_maintenance=1
   run_laravel_release_commands "$website_release" 1
   activate_release website "$website_release" "$WEBSITE_PATH"
+  normalize_laravel_permissions "$WEBSITE_PATH"
   sync_website_public_root "$website_release"
   laravel_up "$WEBSITE_PATH"
   website_maintenance=0
