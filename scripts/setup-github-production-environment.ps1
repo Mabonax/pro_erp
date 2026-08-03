@@ -5,10 +5,15 @@ param(
     [string] $DefaultDeployPort = "22",
     [string] $ErpPath = "/home/prograg9g3o8/apps/erp.programofaction.org",
     [string] $WebsitePath = "/home/prograg9g3o8/apps/website",
-    [string] $KeyPath = "$env:USERPROFILE\.ssh\poa_github_actions_ed25519"
+    [string] $KeyPath = "$env:USERPROFILE\.ssh\poa_github_actions_ed25519",
+    [switch] $AllowLegacySsh
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $AllowLegacySsh) {
+    throw "This helper belongs to the superseded SSH-push deployment path. Use scripts/deployment/pull-release-config.example.env and docs/deployment/cpanel-pull-release-runbook.md for the current pull-based release system."
+}
 
 function Require-Command($Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
