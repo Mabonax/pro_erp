@@ -4,17 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       erp_ref:
-        description: ERP branch, tag, or commit to deploy
+        description: ERP branch, tag, or commit to package
         required: true
         default: program-of-action-erp
         type: string
       website_ref:
-        description: Public website branch, tag, or commit to deploy
+        description: Public website branch, tag, or commit to package
         required: true
         default: main
         type: string
       allow_merge_commit:
-        description: Allow deploying a merge commit
+        description: Allow packaging a merge commit
         required: true
         default: false
         type: boolean
@@ -35,11 +35,13 @@ env:
 
 jobs:
   build-erp:
-    name: Build and test ERP
+    name: Build, test, and package ERP
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
+      archive: ${{ steps.package.outputs.archive }}
+      checksum: ${{ steps.package.outputs.checksum }}
     steps:
       - name: Checkout ERP
         uses: actions/checkout@v5
@@ -111,30 +113,60 @@ jobs:
         run: |
           npm run build
           npm run types
+          test -f public/build/manifest.json
 
       - name: Run ERP tests
         working-directory: erp
         run: php artisan test
 
-      - name: Package ERP Vite build
+      - name: Package ERP release archive
+        id: package
         working-directory: erp
         run: |
-          test -f public/build/manifest.json
-          (cd public/build && zip -qr "$RUNNER_TEMP/erp-public-build.zip" .)
+          set -Eeuo pipefail
+          archive="poa-erp-${{ steps.revision.outputs.sha }}.tar.gz"
+          staging="$RUNNER_TEMP/erp-package"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+          rsync -a ./ "$staging/" \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='node_modules/' \
+            --exclude='vendor/' \
+            --exclude='tests/' \
+            --exclude='storage/app/*' \
+            --exclude='storage/framework/cache/*' \
+            --exclude='storage/framework/sessions/*' \
+            --exclude='storage/framework/testing/*' \
+            --exclude='storage/framework/views/*' \
+            --exclude='storage/logs/*' \
+            --exclude='bootstrap/cache/*.php' \
+            --exclude='.tmp_*' \
+            --exclude='*.log'
+          test -f "$staging/public/build/manifest.json"
+          tar -C "$staging" -czf "$RUNNER_TEMP/$archive" .
+          sha256sum "$RUNNER_TEMP/$archive" | tee "$RUNNER_TEMP/$archive.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "checksum=$(cut -d' ' -f1 "$RUNNER_TEMP/$archive.sha256")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload ERP build artifact
+      - name: Upload ERP release package
         uses: actions/upload-artifact@v4
         with:
-          name: erp-public-build
-          path: ${{ runner.temp }}/erp-public-build.zip
+          name: erp-release-package
+          path: |
+            ${{ runner.temp }}/${{ steps.package.outputs.archive }}
+            ${{ runner.temp }}/${{ steps.package.outputs.archive }}.sha256
           if-no-files-found: error
 
   build-website:
-    name: Build and test public website
+    name: Build, test, and package public website
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
+      archive: ${{ steps.package.outputs.archive }}
+      checksum: ${{ steps.package.outputs.checksum }}
     steps:
       - name: Checkout public website
         uses: actions/checkout@v5
@@ -187,7 +219,7 @@ jobs:
         working-directory: website
         run: |
           cp .env.example .env
-          mkdir -p database bootstrap/cache
+          mkdir -p database bootstrap/cache config
           touch database/database.sqlite
           {
             echo "APP_ENV=testing"
@@ -201,7 +233,6 @@ jobs:
           } >> .env
           php artisan key:generate --force
           php artisan config:clear
-          mkdir -p config
           cat > config/inertia.php <<'PHP'
           <?php
 
@@ -227,28 +258,56 @@ jobs:
         working-directory: website
         run: |
           npm run build
+          test -f public/build/manifest.json
 
       - name: Run website tests
         working-directory: website
         run: php artisan test
 
-      - name: Package website Vite build
+      - name: Package website release archive
+        id: package
         working-directory: website
         run: |
-          test -f public/build/manifest.json
-          (cd public/build && zip -qr "$RUNNER_TEMP/website-public-build.zip" .)
+          set -Eeuo pipefail
+          archive="poa-website-${{ steps.revision.outputs.sha }}.tar.gz"
+          staging="$RUNNER_TEMP/website-package"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+          rsync -a ./ "$staging/" \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='node_modules/' \
+            --exclude='vendor/' \
+            --exclude='tests/' \
+            --exclude='storage/app/*' \
+            --exclude='storage/framework/cache/*' \
+            --exclude='storage/framework/sessions/*' \
+            --exclude='storage/framework/testing/*' \
+            --exclude='storage/framework/views/*' \
+            --exclude='storage/logs/*' \
+            --exclude='bootstrap/cache/*.php' \
+            --exclude='.tmp_*' \
+            --exclude='*.log'
+          test -f "$staging/public/build/manifest.json"
+          tar -C "$staging" -czf "$RUNNER_TEMP/$archive" .
+          sha256sum "$RUNNER_TEMP/$archive" | tee "$RUNNER_TEMP/$archive.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "checksum=$(cut -d' ' -f1 "$RUNNER_TEMP/$archive.sha256")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload website build artifact
+      - name: Upload website release package
         uses: actions/upload-artifact@v4
         with:
-          name: website-public-build
-          path: ${{ runner.temp }}/website-public-build.zip
+          name: website-release-package
+          path: |
+            ${{ runner.temp }}/${{ steps.package.outputs.archive }}
+            ${{ runner.temp }}/${{ steps.package.outputs.archive }}.sha256
           if-no-files-found: error
 
-  deploy-production:
-    name: Deploy ERP then public website
+  publish-release:
+    name: Publish approved pull release
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     needs:
       - build-erp
       - build-website
@@ -256,216 +315,121 @@ jobs:
       name: production
       url: https://programofaction.org
     permissions:
-      contents: read
+      contents: write
     env:
-      SSH_HOST: ${{ secrets.POA_DEPLOY_HOST }}
-      SSH_PORT: ${{ secrets.POA_DEPLOY_PORT || '22' }}
-      SSH_USER: ${{ secrets.POA_DEPLOY_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.POA_DEPLOY_SSH_KEY }}
-      SSH_KNOWN_HOSTS: ${{ secrets.POA_DEPLOY_KNOWN_HOSTS }}
-      ERP_PATH: ${{ vars.POA_ERP_PATH || secrets.POA_ERP_PATH }}
-      WEBSITE_PATH: ${{ vars.POA_WEBSITE_PATH || secrets.POA_WEBSITE_PATH }}
       ERP_SHA: ${{ needs.build-erp.outputs.sha }}
       WEBSITE_SHA: ${{ needs.build-website.outputs.sha }}
-      ERP_PUBLIC_INTAKE_TOKEN: ${{ secrets.POA_ERP_PUBLIC_INTAKE_TOKEN }}
+      ERP_ARCHIVE: ${{ needs.build-erp.outputs.archive }}
+      WEBSITE_ARCHIVE: ${{ needs.build-website.outputs.archive }}
+      ERP_CHECKSUM: ${{ needs.build-erp.outputs.checksum }}
+      WEBSITE_CHECKSUM: ${{ needs.build-website.outputs.checksum }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Validate deployment configuration
-        run: |
-          missing=0
-          for name in SSH_HOST SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS ERP_PATH WEBSITE_PATH ERP_PUBLIC_INTAKE_TOKEN; do
-            if [ -z "${!name}" ]; then
-              echo "::error::$name is not configured."
-              missing=1
-            fi
-          done
-          exit "$missing"
-
-      - name: Download ERP build
+      - name: Download ERP release package
         uses: actions/download-artifact@v5
         with:
-          name: erp-public-build
-          path: artifacts
+          name: erp-release-package
+          path: release-assets
 
-      - name: Download website build
+      - name: Download website release package
         uses: actions/download-artifact@v5
         with:
-          name: website-public-build
-          path: artifacts
+          name: website-release-package
+          path: release-assets
 
-      - name: Configure SSH
+      - name: Create release manifest
+        id: manifest
         run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
-      - name: Upload build artifacts
-        run: |
-          scp -P "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes artifacts/erp-public-build.zip "$SSH_USER@$SSH_HOST:/tmp/poa-erp-build-${GITHUB_RUN_ID}.zip"
-          scp -P "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes artifacts/website-public-build.zip "$SSH_USER@$SSH_HOST:/tmp/poa-website-build-${GITHUB_RUN_ID}.zip"
-
-      - name: Acquire production deployment lock
-        run: |
-          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
-            "mkdir \"\$HOME/.poa-production-release.lock\" || { echo 'Another POA production deployment is already running.' >&2; exit 75; }"
-          touch "$RUNNER_TEMP/poa-production-release-lock-acquired"
-
-      - name: Deploy ERP
-        run: |
-          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_PATH='$ERP_PATH' TARGET_SHA='$ERP_SHA' ASSET_ZIP='/tmp/poa-erp-build-${GITHUB_RUN_ID}.zip' bash -s" <<'REMOTE'
           set -Eeuo pipefail
-          previous_sha=""
-          migrations_completed=0
-          cleanup() {
-            status=$?
-            php artisan up >/dev/null 2>&1 || true
-            if [ "$status" -ne 0 ] && [ "$migrations_completed" -eq 0 ] && [ -n "$previous_sha" ]; then
-              git checkout --detach "$previous_sha" >/dev/null 2>&1 || true
-            fi
-            exit "$status"
+          release_id="$(date -u +'%Y%m%dT%H%M%SZ')-${GITHUB_RUN_ID}"
+          tag="poa-production-${release_id}"
+          manifest="poa-production-${release_id}-manifest.json"
+          checksums="poa-production-${release_id}-checksums.txt"
+          cat > "release-assets/$manifest" <<JSON
+          {
+            "schema_version": 1,
+            "release_id": "$release_id",
+            "created_at": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "github_run_id": "$GITHUB_RUN_ID",
+            "github_repository": "$GITHUB_REPOSITORY",
+            "erp": {
+              "repository": "Mabonax/pro_erp",
+              "commit_sha": "$ERP_SHA",
+              "archive": "$ERP_ARCHIVE",
+              "sha256": "$ERP_CHECKSUM",
+              "health_urls": [
+                "$ERP_URL",
+                "$ERP_URL/api/public/v1/offerings"
+              ]
+            },
+            "website": {
+              "repository": "$WEBSITE_REPOSITORY",
+              "commit_sha": "$WEBSITE_SHA",
+              "archive": "$WEBSITE_ARCHIVE",
+              "sha256": "$WEBSITE_CHECKSUM",
+              "health_urls": [
+                "$WEBSITE_URL",
+                "$WEBSITE_URL/get-assistance",
+                "$WEBSITE_URL/get-assistance?offering=nsfas-applications-2027"
+              ]
+            },
+            "deployment_order": [
+              "erp",
+              "website"
+            ]
           }
-          trap cleanup EXIT
-          cd "$DEPLOY_PATH"
-          expected="$(cd "$DEPLOY_PATH" && pwd -P)"
-          resolved="$(pwd -P)"
-          test "$resolved" = "$expected"
-          previous_sha="$(git rev-parse HEAD)"
-          git diff --quiet
-          git diff --cached --quiet
-          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
-          git cat-file -e "$TARGET_SHA^{commit}"
-          git checkout --detach "$TARGET_SHA"
-          php artisan down --render=errors::503 --retry=60 || true
-          composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
-          php artisan migrate --force
-          migrations_completed=1
-          php artisan optimize:clear
-          php artisan optimize
-          mkdir -p public/build
-          unzip -oq "$ASSET_ZIP" -d public/build
-          test -f public/build/manifest.json
-          chmod -R ug+rw storage bootstrap/cache 2>/dev/null || true
-          php artisan up
-          printf '%s\n' "$previous_sha" > storage/app/previous-deploy-sha.txt
-          printf '%s\n' "$TARGET_SHA" > storage/app/current-deploy-sha.txt
-          REMOTE
+          JSON
+          sha256sum "release-assets/$ERP_ARCHIVE" "release-assets/$WEBSITE_ARCHIVE" "release-assets/$manifest" > "release-assets/$checksums"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
+          echo "checksums=$checksums" >> "$GITHUB_OUTPUT"
 
-      - name: Verify ERP health
+      - name: Verify release assets
         run: |
-          python - <<'PY'
-          import json, os, subprocess, sys, urllib.request
-          token = os.environ["ERP_PUBLIC_INTAKE_TOKEN"]
-          req = urllib.request.Request(os.environ["ERP_URL"] + "/api/public/v1/offerings", headers={"Accept": "application/json", "Authorization": f"Bearer {token}"})
-          try:
-              with urllib.request.urlopen(req, timeout=20) as response:
-                  body = response.read()
-                  data = json.loads(body)
-                  if response.status < 200 or response.status >= 300 or not isinstance(data.get("data"), list):
-                      raise RuntimeError("Offerings response was not successful safe JSON.")
-          except Exception as exc:
-              print(f"::error::ERP offerings health check failed: {exc}")
-              sys.exit(1)
-          for path in ["/citizen-access/intakes", "/citizen-access/cases", "/citizen-access/admin", "/access-control/roles"]:
-              code = subprocess.check_output(["curl", "-sS", "-o", "/tmp/poa-health-body", "-w", "%{http_code}", os.environ["ERP_URL"] + path], text=True).strip()
-              if code in {"404", "500"} or code.startswith("5"):
-                  print(f"::error::ERP route {path} returned HTTP {code}.")
-                  sys.exit(1)
-          PY
-
-      - name: Deploy public website
-        run: |
-          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_PATH='$WEBSITE_PATH' TARGET_SHA='$WEBSITE_SHA' ASSET_ZIP='/tmp/poa-website-build-${GITHUB_RUN_ID}.zip' bash -s" <<'REMOTE'
           set -Eeuo pipefail
-          previous_sha=""
-          cleanup() {
-            status=$?
-            php artisan up >/dev/null 2>&1 || true
-            exit "$status"
-          }
-          trap cleanup EXIT
-          cd "$DEPLOY_PATH"
-          expected="$(cd "$DEPLOY_PATH" && pwd -P)"
-          resolved="$(pwd -P)"
-          test "$resolved" = "$expected"
-          previous_sha="$(git rev-parse HEAD)"
-          git diff --quiet
-          git diff --cached --quiet
-          grep -Eq '^POA_ERP_BASE_URL=.' .env
-          grep -Eq '^POA_ERP_PUBLIC_INTAKE_TOKEN=.' .env
-          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
-          git cat-file -e "$TARGET_SHA^{commit}"
-          git checkout --detach "$TARGET_SHA"
-          php artisan down --render=errors::503 --retry=60 || true
-          composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
-          if find database/migrations -type f -name '*.php' | grep -q .; then
-            php artisan migrate --force
-          fi
-          mkdir -p public/build
-          unzip -oq "$ASSET_ZIP" -d public/build
-          test -f public/build/manifest.json
-          php artisan optimize:clear
-          php artisan optimize
-          chmod -R ug+rw storage bootstrap/cache 2>/dev/null || true
-          php artisan up
-          printf '%s\n' "$previous_sha" > storage/app/previous-deploy-sha.txt
-          printf '%s\n' "$TARGET_SHA" > storage/app/current-deploy-sha.txt
-          REMOTE
+          cd release-assets
+          test -f "$ERP_ARCHIVE"
+          test -f "$ERP_ARCHIVE.sha256"
+          test -f "$WEBSITE_ARCHIVE"
+          test -f "$WEBSITE_ARCHIVE.sha256"
+          sha256sum -c "$ERP_ARCHIVE.sha256"
+          sha256sum -c "$WEBSITE_ARCHIVE.sha256"
+          python -m json.tool "${{ steps.manifest.outputs.manifest }}" >/dev/null
 
-      - name: Verify public website health
+      - name: Publish private GitHub release
         run: |
-          python - <<'PY'
-          import os, subprocess, sys, urllib.request
-          urls = [
-              os.environ["WEBSITE_URL"],
-              os.environ["WEBSITE_URL"] + "/get-assistance",
-              os.environ["WEBSITE_URL"] + "/get-assistance?offering=nsfas-applications-2027",
-          ]
-          for url in urls:
-              try:
-                  with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "text/html"}), timeout=20) as response:
-                      body = response.read().decode("utf-8", "replace")
-                      if response.status >= 500:
-                          raise RuntimeError(f"HTTP {response.status}")
-                      if "/get-assistance" in url and "Get Assistance" not in body:
-                          raise RuntimeError("Get Assistance content was not present.")
-                      if "offering=nsfas-applications-2027" in url and "nsfas-applications-2027" not in body:
-                          raise RuntimeError("Expected offering preselection slug was not rendered.")
-              except Exception as exc:
-                  print(f"::error::Website health check failed for {url}: {exc}")
-                  sys.exit(1)
-          home = subprocess.check_output(["curl", "-sS", os.environ["WEBSITE_URL"]], text=True)
-          if "Get Assistance" not in home:
-              print("::error::Get Assistance is not exposed in public navigation.")
-              sys.exit(1)
-          PY
+          set -Eeuo pipefail
+          cat > release-notes.md <<'MD'
+          Approved pull-based Program of Action production release.
 
-      - name: Release deployment lock
-        if: always()
-        run: |
-          if [ ! -s ~/.ssh/id_ed25519 ] || [ ! -s ~/.ssh/known_hosts ]; then
-            echo "SSH was not configured; no remote deployment lock cleanup is required."
-            exit 0
-          fi
-          if [ ! -f "$RUNNER_TEMP/poa-production-release-lock-acquired" ]; then
-            echo "Deployment lock was not acquired; no remote deployment lock cleanup is required."
-            exit 0
-          fi
-          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
-            "rmdir \"\$HOME/.poa-production-release.lock\" 2>/dev/null || true; rm -f '/tmp/poa-erp-build-${GITHUB_RUN_ID}.zip' '/tmp/poa-website-build-${GITHUB_RUN_ID}.zip'"
+          Afrihost must pull this release over authenticated HTTPS from the private ERP repository. GitHub Actions does not SSH into production.
+          MD
+          gh release create "${{ steps.manifest.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$ERP_SHA" \
+            --title "Program of Action production ${{ steps.manifest.outputs.release_id }}" \
+            --notes-file release-notes.md \
+            --latest \
+            "release-assets/$ERP_ARCHIVE" \
+            "release-assets/$ERP_ARCHIVE.sha256" \
+            "release-assets/$WEBSITE_ARCHIVE" \
+            "release-assets/$WEBSITE_ARCHIVE.sha256" \
+            "release-assets/${{ steps.manifest.outputs.manifest }}" \
+            "release-assets/${{ steps.manifest.outputs.checksums }}"
 
-      - name: Deployment summary
-        if: always()
+      - name: Release summary
         run: |
           {
-            echo "## Program of Action production release"
+            echo "## Program of Action pull release"
             echo
-            echo "| Application | Commit | URL |"
-            echo "| --- | --- | --- |"
-            echo "| ERP | \`$ERP_SHA\` | $ERP_URL |"
-            echo "| Public website | \`$WEBSITE_SHA\` | $WEBSITE_URL |"
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Release ID | \`${{ steps.manifest.outputs.release_id }}\` |"
+            echo "| Release tag | \`${{ steps.manifest.outputs.tag }}\` |"
+            echo "| ERP commit | \`$ERP_SHA\` |"
+            echo "| Website commit | \`$WEBSITE_SHA\` |"
+            echo "| Manifest | \`${{ steps.manifest.outputs.manifest }}\` |"
             echo
-            echo "ERP is deployed and verified before the public website job starts. Production .env files remain on the server and are not printed or copied."
+            echo "GitHub published an approved private release only. Afrihost must pull and deploy it from cron."
           } >> "$GITHUB_STEP_SUMMARY"
