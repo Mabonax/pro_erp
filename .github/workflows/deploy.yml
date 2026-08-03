@@ -309,6 +309,7 @@ jobs:
         run: |
           ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
             "mkdir \"\$HOME/.poa-production-release.lock\" || { echo 'Another POA production deployment is already running.' >&2; exit 75; }"
+          touch "$RUNNER_TEMP/poa-production-release-lock-acquired"
 
       - name: Deploy ERP
         run: |
@@ -446,6 +447,10 @@ jobs:
         run: |
           if [ ! -s ~/.ssh/id_ed25519 ] || [ ! -s ~/.ssh/known_hosts ]; then
             echo "SSH was not configured; no remote deployment lock cleanup is required."
+            exit 0
+          fi
+          if [ ! -f "$RUNNER_TEMP/poa-production-release-lock-acquired" ]; then
+            echo "Deployment lock was not acquired; no remote deployment lock cleanup is required."
             exit 0
           fi
           ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" \
