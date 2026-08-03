@@ -146,7 +146,7 @@ jobs:
             --exclude='*.log'
           test -f "$staging/public/build/manifest.json"
           tar -C "$staging" -czf "$RUNNER_TEMP/$archive" .
-          sha256sum "$RUNNER_TEMP/$archive" | tee "$RUNNER_TEMP/$archive.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum "$archive") | tee "$RUNNER_TEMP/$archive.sha256"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           echo "checksum=$(cut -d' ' -f1 "$RUNNER_TEMP/$archive.sha256")" >> "$GITHUB_OUTPUT"
 
@@ -291,7 +291,7 @@ jobs:
             --exclude='*.log'
           test -f "$staging/public/build/manifest.json"
           tar -C "$staging" -czf "$RUNNER_TEMP/$archive" .
-          sha256sum "$RUNNER_TEMP/$archive" | tee "$RUNNER_TEMP/$archive.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum "$archive") | tee "$RUNNER_TEMP/$archive.sha256"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           echo "checksum=$(cut -d' ' -f1 "$RUNNER_TEMP/$archive.sha256")" >> "$GITHUB_OUTPUT"
 
