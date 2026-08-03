@@ -62,7 +62,7 @@ json_extract() {
 }
 
 latest_release_json() {
-  "$CURL_BIN" -fsS --retry 2 --retry-delay 2 \
+  "$CURL_BIN" -fsSL --retry 2 --retry-delay 2 \
     -H "Accept: application/vnd.github+json" \
     -H "Authorization: Bearer $GITHUB_TOKEN" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -124,7 +124,7 @@ download_asset() {
   local output="$3"
   local url
   url="$(asset_api_url "$release_file" "$asset_name")" || die "Release asset not found: $asset_name"
-  "$CURL_BIN" -fsS --retry 2 --retry-delay 2 \
+  "$CURL_BIN" -fsSL --retry 2 --retry-delay 2 \
     -H "Accept: application/octet-stream" \
     -H "Authorization: Bearer $GITHUB_TOKEN" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
