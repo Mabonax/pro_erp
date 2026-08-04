@@ -110,6 +110,38 @@ class DocumentFolderService
         });
     }
 
+    public function firstOrCreateOwnedRootFolder(string $ownerType, int $ownerId, string $name, User $actor): DocumentFolder
+    {
+        if (! $this->accessService->canManageOwner($actor, $ownerType)) {
+            abort(403);
+        }
+
+        $this->resolveOwnerModel($ownerType, $ownerId);
+
+        $existing = DocumentFolder::query()
+            ->where('owner_type', $ownerType)
+            ->where('owner_id', $ownerId)
+            ->where('folder_type', DocumentFolder::TYPE_STANDARD)
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        return DB::transaction(function () use ($actor, $ownerType, $ownerId, $name) {
+            $group = $this->ensureLibraryGroup($this->groupNameForOwnerType($ownerType), $actor);
+
+            return $this->repository->create([
+                'name' => $name,
+                'parent_id' => $group->id,
+                'owner_type' => $ownerType,
+                'owner_id' => $ownerId,
+                'folder_type' => DocumentFolder::TYPE_STANDARD,
+                'created_by' => $actor->id,
+            ]);
+        });
+    }
+
     public function renameFolder(DocumentFolder $folder, string $name, User $actor): DocumentFolder
     {
         if (! $this->accessService->canManageFolder($actor, $folder) || $folder->isLibraryGroup()) {

@@ -4,8 +4,10 @@ namespace App\Domains\CitizenAccess\Services;
 
 use App\Domains\Beneficiaries\Models\Beneficiary;
 use App\Domains\CitizenAccess\Models\AssessmentItem;
+use App\Domains\CitizenAccess\Models\Opportunity;
 use App\Domains\CitizenAccess\Models\RequirementTemplateVersion;
 use App\Domains\CitizenAccess\Models\SupportCase;
+use App\Domains\Enterprises\Models\Enterprise;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -17,10 +19,38 @@ class CitizenAccessCaseService
 
     public function createCase(Beneficiary $beneficiary, array $data, User $actor): SupportCase
     {
-        return DB::transaction(function () use ($beneficiary, $data, $actor) {
+        return $this->createRecipientCase($beneficiary, null, $data, $actor);
+    }
+
+    public function createEnterpriseCase(Enterprise $enterprise, array $data, User $actor): SupportCase
+    {
+        return $this->createRecipientCase(null, $enterprise, $data, $actor);
+    }
+
+    private function createRecipientCase(?Beneficiary $beneficiary, ?Enterprise $enterprise, array $data, User $actor): SupportCase
+    {
+        if (($beneficiary === null) === ($enterprise === null)) {
+            throw ValidationException::withMessages([
+                'recipient' => ['A support case must have exactly one recipient: either a beneficiary or an enterprise.'],
+            ]);
+        }
+
+        $opportunity = ! empty($data['opportunity_id'])
+            ? Opportunity::query()->find((int) $data['opportunity_id'])
+            : null;
+        $pathwayVersionId = $data['service_pathway_version_id'] ?? $opportunity?->service_pathway_version_id ?? null;
+
+        if ($opportunity && $pathwayVersionId && (int) $opportunity->service_pathway_version_id !== (int) $pathwayVersionId) {
+            throw ValidationException::withMessages([
+                'service_pathway_version_id' => ['The selected pathway version must belong to the selected service offering.'],
+            ]);
+        }
+
+        return DB::transaction(function () use ($beneficiary, $enterprise, $data, $actor, $pathwayVersionId) {
             $case = SupportCase::query()->create([
                 'case_reference' => $this->nextCaseReference(),
-                'beneficiary_id' => $beneficiary->id,
+                'beneficiary_id' => $beneficiary?->id,
+                'enterprise_id' => $enterprise?->id,
                 'intake_id' => $data['intake_id'] ?? null,
                 'program_id' => $data['program_id'] ?? null,
                 'project_id' => $data['project_id'] ?? null,
@@ -28,6 +58,8 @@ class CitizenAccessCaseService
                 'service_stream_id' => $data['service_stream_id'],
                 'institution_id' => $data['institution_id'] ?? null,
                 'opportunity_id' => $data['opportunity_id'] ?? null,
+                'service_pathway_version_id' => $pathwayVersionId,
+                'recipient_type' => $enterprise ? 'enterprise' : 'person',
                 'application_cycle_id' => $data['application_cycle_id'] ?? null,
                 'assigned_to_user_id' => $data['assigned_to_user_id'] ?? $actor->id,
                 'priority' => $data['priority'] ?? 'normal',
@@ -41,7 +73,7 @@ class CitizenAccessCaseService
                 $this->applyTemplate($case, (int) $data['template_version_id'], $actor);
             }
 
-            return $case->load(['beneficiary', 'serviceStream', 'assessmentItems', 'readinessActions']);
+            return $case->load(['beneficiary', 'enterprise', 'serviceStream', 'servicePathwayVersion.pathway', 'assessmentItems', 'readinessActions']);
         });
     }
 

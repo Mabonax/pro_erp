@@ -33,6 +33,7 @@ export default function ProjectShow({
     milestones,
     progress,
     locations,
+    beneficiaryJourney,
     attendanceTrend,
     history,
     canManageProjects,
@@ -42,6 +43,7 @@ export default function ProjectShow({
     milestones: any[];
     progress: any;
     locations: any[];
+    beneficiaryJourney: any;
     attendanceTrend: { date: string; attendance_rate: number }[];
     history: any[];
     canManageProjects: boolean;
@@ -57,6 +59,8 @@ export default function ProjectShow({
     const projectData = project?.data ?? project;
     const statusSummary = projectData.status_summary;
     const summary = progress?.summary ?? {};
+    const journeySummary = beneficiaryJourney?.summary ?? {};
+    const journeyLocations = beneficiaryJourney?.locations ?? [];
 
     const handleSyncMilestones = (e: React.FormEvent) => {
         e.preventDefault();
@@ -314,6 +318,212 @@ export default function ProjectShow({
                         emptyMessage="No assessment data is available for project locations yet."
                     />
                 </div>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Beneficiary Journey Rollup</CardTitle>
+                        <CardDescription>
+                            Cross-domain view of support cases, evidence gaps,
+                            readiness actions, milestone progress, and
+                            attendance risk by location.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-5">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div className="rounded-md border p-3">
+                                <div className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                                    Open cases
+                                </div>
+                                <div className="mt-1 text-2xl font-semibold">
+                                    {journeySummary.open_support_cases ?? 0}
+                                </div>
+                            </div>
+                            <div className="rounded-md border p-3">
+                                <div className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                                    Evidence gaps
+                                </div>
+                                <div className="mt-1 text-2xl font-semibold">
+                                    {journeySummary.evidence_gaps ?? 0}
+                                </div>
+                            </div>
+                            <div className="rounded-md border p-3">
+                                <div className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                                    Readiness actions
+                                </div>
+                                <div className="mt-1 text-2xl font-semibold">
+                                    {journeySummary.open_readiness_actions ?? 0}
+                                </div>
+                            </div>
+                            <div className="rounded-md border p-3">
+                                <div className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                                    Locations with risk
+                                </div>
+                                <div className="mt-1 text-2xl font-semibold">
+                                    {journeySummary.locations_with_risks ?? 0}
+                                </div>
+                            </div>
+                        </div>
+
+                        {journeyLocations.length === 0 ? (
+                            <p className="rounded-md border p-3 text-sm text-muted-foreground">
+                                No beneficiary journey data is available for
+                                this project yet.
+                            </p>
+                        ) : (
+                            <div className="space-y-4">
+                                {journeyLocations.map((location: any) => (
+                                    <div
+                                        key={location.location_id}
+                                        className="rounded-md border p-4"
+                                    >
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                            <div>
+                                                <div className="font-semibold">
+                                                    {location.location ??
+                                                        'Unnamed location'}
+                                                </div>
+                                                <div className="mt-1 text-xs text-muted-foreground">
+                                                    {location.active_beneficiaries ??
+                                                        0}{' '}
+                                                    active beneficiaries |
+                                                    Attendance{' '}
+                                                    {location.attendance_rate ??
+                                                        0}
+                                                    %
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                                <div className="rounded-md border px-2 py-1.5">
+                                                    <div className="font-semibold">
+                                                        {location.open_support_cases ??
+                                                            0}
+                                                    </div>
+                                                    <div className="text-muted-foreground">
+                                                        Cases
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-md border px-2 py-1.5">
+                                                    <div className="font-semibold">
+                                                        {location.evidence_gaps ??
+                                                            0}
+                                                    </div>
+                                                    <div className="text-muted-foreground">
+                                                        Gaps
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-md border px-2 py-1.5">
+                                                    <div className="font-semibold">
+                                                        {location.open_readiness_actions ??
+                                                            0}
+                                                    </div>
+                                                    <div className="text-muted-foreground">
+                                                        Actions
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {location.at_risk_beneficiaries
+                                            ?.length ? (
+                                            <div className="mt-4 overflow-x-auto">
+                                                <table className="min-w-full text-sm">
+                                                    <thead>
+                                                        <tr className="border-b text-left text-xs text-muted-foreground">
+                                                            <th className="px-3 py-2 font-medium">
+                                                                Beneficiary
+                                                            </th>
+                                                            <th className="px-3 py-2 font-medium">
+                                                                Cases
+                                                            </th>
+                                                            <th className="px-3 py-2 font-medium">
+                                                                Evidence
+                                                            </th>
+                                                            <th className="px-3 py-2 font-medium">
+                                                                Actions
+                                                            </th>
+                                                            <th className="px-3 py-2 font-medium">
+                                                                Milestones
+                                                            </th>
+                                                            <th className="px-3 py-2 font-medium">
+                                                                Attendance
+                                                            </th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {location.at_risk_beneficiaries.map(
+                                                            (
+                                                                beneficiary: any,
+                                                            ) => (
+                                                                <tr
+                                                                    key={
+                                                                        beneficiary.beneficiary_id
+                                                                    }
+                                                                    className="border-b"
+                                                                >
+                                                                    <td className="px-3 py-2">
+                                                                        <Link
+                                                                            href={`/beneficiaries/${beneficiary.beneficiary_id}`}
+                                                                            className="font-medium text-red-600 hover:underline"
+                                                                        >
+                                                                            {
+                                                                                beneficiary.beneficiary_name
+                                                                            }
+                                                                        </Link>
+                                                                        {beneficiary
+                                                                            .missing_evidence
+                                                                            ?.length ? (
+                                                                            <div className="mt-1 text-xs text-muted-foreground">
+                                                                                Missing:{' '}
+                                                                                {beneficiary.missing_evidence.join(
+                                                                                    ', ',
+                                                                                )}
+                                                                            </div>
+                                                                        ) : null}
+                                                                    </td>
+                                                                    <td className="px-3 py-2">
+                                                                        {beneficiary.open_support_cases ??
+                                                                            0}
+                                                                    </td>
+                                                                    <td className="px-3 py-2">
+                                                                        {beneficiary.evidence_count ??
+                                                                            0}{' '}
+                                                                        files /{' '}
+                                                                        {beneficiary.evidence_gap_count ??
+                                                                            0}{' '}
+                                                                        gaps
+                                                                    </td>
+                                                                    <td className="px-3 py-2">
+                                                                        {beneficiary.open_readiness_actions ??
+                                                                            0}
+                                                                    </td>
+                                                                    <td className="px-3 py-2">
+                                                                        {beneficiary.completed_milestone_assessments ??
+                                                                            0}
+                                                                    </td>
+                                                                    <td className="px-3 py-2">
+                                                                        {beneficiary.attendance_rate ??
+                                                                            0}
+                                                                        %
+                                                                    </td>
+                                                                </tr>
+                                                            ),
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ) : (
+                                            <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                                                No beneficiary-level journey
+                                                risks are currently flagged for
+                                                this location.
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
 
                 <div className="grid gap-6 lg:grid-cols-2">
                     <Card>

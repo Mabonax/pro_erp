@@ -4,8 +4,11 @@ namespace App\Domains\Beneficiaries\Models;
 
 use App\Domains\Members\Models\Member;
 use App\Domains\Programs\Models\Program;
+use App\Domains\CitizenAccess\Models\EvidenceItem;
+use App\Domains\CitizenAccess\Models\SupportCase;
 use App\Domains\Projects\Models\Project;
 use App\Domains\Projects\Models\ProjectEnrollment;
+use App\Domains\Projects\Models\ProjectMilestoneAssessment;
 use App\Domains\ServiceDelivery\Models\BeneficiaryPlacement;
 use App\Domains\ServiceDelivery\Models\ServiceAttendance;
 use App\Models\NextOfKin;
@@ -78,6 +81,21 @@ class Beneficiary extends Model
     public function projectEnrollments()
     {
         return $this->hasMany(ProjectEnrollment::class);
+    }
+
+    public function supportCases()
+    {
+        return $this->hasMany(SupportCase::class);
+    }
+
+    public function evidenceItems()
+    {
+        return $this->hasMany(EvidenceItem::class);
+    }
+
+    public function milestoneAssessments()
+    {
+        return $this->hasMany(ProjectMilestoneAssessment::class);
     }
 
     public function placements()

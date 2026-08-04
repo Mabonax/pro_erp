@@ -90,6 +90,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('beneficiaries/import', [BeneficiaryController::class, 'import'])
         ->middleware($managePermission('beneficiaries'))
         ->name('beneficiaries.import');
+    Route::post('beneficiaries/{beneficiary}/evidence', [BeneficiaryController::class, 'storeEvidence'])
+        ->middleware($managePermission('beneficiaries'))
+        ->whereNumber('beneficiary')
+        ->name('beneficiaries.evidence.store');
     Route::resource('beneficiaries', BeneficiaryController::class)
         ->middlewareFor(['index', 'show'], $viewPermission('beneficiaries'))
         ->middlewareFor(['create', 'store', 'edit', 'update', 'destroy'], $managePermission('beneficiaries'));
@@ -112,11 +116,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('cases/{case}/template', [CitizenAccessSupportCaseController::class, 'applyTemplate'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.template');
             Route::post('cases/{case}/readiness', [CitizenAccessSupportCaseController::class, 'recalculate'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.readiness');
             Route::post('cases/{case}/activities', [CitizenAccessSupportCaseController::class, 'storeActivity'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.activities.store');
+            Route::post('cases/{case}/readiness-actions/{action}/task', [CitizenAccessSupportCaseController::class, 'createReadinessTask'])->middleware($managePermission('citizen-access'))->whereNumber(['case', 'action'])->name('cases.readiness-actions.task');
             Route::post('assessment-items/{item}/status', [CitizenAccessSupportCaseController::class, 'assessmentStatus'])->middleware($managePermission('citizen-access'))->whereNumber('item')->name('assessment-items.status');
 
             Route::get('admin', [CitizenAccessAdminController::class, 'index'])->middleware($managePermission('citizen-access'))->name('admin.index');
+            Route::post('admin/program-categories', [CitizenAccessAdminController::class, 'storeProgramCategory'])->middleware($managePermission('citizen-access'))->name('admin.program-categories.store');
             Route::post('admin/service-streams', [CitizenAccessAdminController::class, 'storeStream'])->middleware($managePermission('citizen-access'))->name('admin.service-streams.store');
             Route::post('admin/institutions', [CitizenAccessAdminController::class, 'storeInstitution'])->middleware($managePermission('citizen-access'))->name('admin.institutions.store');
+            Route::post('admin/service-pathways', [CitizenAccessAdminController::class, 'storePathway'])->middleware($managePermission('citizen-access'))->name('admin.service-pathways.store');
+            Route::post('admin/service-pathways/{pathway}/versions', [CitizenAccessAdminController::class, 'storePathwayVersion'])->middleware($managePermission('citizen-access'))->whereNumber('pathway')->name('admin.service-pathways.versions.store');
+            Route::post('admin/enterprises', [CitizenAccessAdminController::class, 'storeEnterprise'])->middleware($managePermission('citizen-access'))->name('admin.enterprises.store');
+            Route::post('admin/enterprises/{enterprise}/people', [CitizenAccessAdminController::class, 'storeEnterprisePerson'])->middleware($managePermission('citizen-access'))->whereNumber('enterprise')->name('admin.enterprises.people.store');
             Route::post('admin/opportunities', [CitizenAccessAdminController::class, 'storeOpportunity'])->middleware($managePermission('citizen-access'))->name('admin.opportunities.store');
             Route::put('admin/opportunities/{opportunity}', [CitizenAccessAdminController::class, 'updateOpportunity'])->middleware($managePermission('citizen-access'))->whereNumber('opportunity')->name('admin.opportunities.update');
             Route::post('admin/templates', [CitizenAccessAdminController::class, 'storeTemplate'])->middleware($managePermission('citizen-access'))->name('admin.templates.store');

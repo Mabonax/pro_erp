@@ -21,6 +21,8 @@ class Opportunity extends Model
         'project_id',
         'project_location_id',
         'requirement_template_id',
+        'service_pathway_id',
+        'service_pathway_version_id',
         'name',
         'opportunity_type',
         'description',
@@ -32,6 +34,9 @@ class Opportunity extends Model
         'is_active',
         'is_published',
         'published_at',
+        'opens_on',
+        'closes_on',
+        'capacity',
         'display_order',
     ];
 
@@ -39,6 +44,9 @@ class Opportunity extends Model
         'is_active' => 'boolean',
         'is_published' => 'boolean',
         'published_at' => 'datetime',
+        'opens_on' => 'date:Y-m-d',
+        'closes_on' => 'date:Y-m-d',
+        'capacity' => 'integer',
         'display_order' => 'integer',
     ];
 
@@ -72,6 +80,16 @@ class Opportunity extends Model
         return $this->belongsTo(RequirementTemplate::class, 'requirement_template_id');
     }
 
+    public function servicePathway(): BelongsTo
+    {
+        return $this->belongsTo(ServicePathway::class, 'service_pathway_id');
+    }
+
+    public function servicePathwayVersion(): BelongsTo
+    {
+        return $this->belongsTo(ServicePathwayVersion::class, 'service_pathway_version_id');
+    }
+
     public function cycles(): HasMany
     {
         return $this->hasMany(ApplicationCycle::class, 'opportunity_id');
@@ -92,6 +110,11 @@ class Opportunity extends Model
             ->whereHas('project', fn (Builder $builder) => $builder->whereColumn('projects.program_id', 'citizen_access_opportunities.program_id'))
             ->whereHas('projectLocation', fn (Builder $builder) => $builder->whereColumn('project_locations.project_id', 'citizen_access_opportunities.project_id'))
             ->whereHas('requirementTemplate.versions', fn (Builder $builder) => $builder->where('status', 'published'))
+            ->where(function (Builder $builder) {
+                $builder
+                    ->whereNull('service_pathway_version_id')
+                    ->orWhereHas('servicePathwayVersion', fn (Builder $version) => $version->where('status', 'active'));
+            })
             ->orderBy('display_order')
             ->orderBy('public_title')
             ->orderBy('id');

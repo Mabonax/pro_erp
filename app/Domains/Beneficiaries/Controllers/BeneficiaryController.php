@@ -8,6 +8,10 @@ use App\Domains\Beneficiaries\Requests\StoreBeneficiaryRequest;
 use App\Domains\Beneficiaries\Requests\UpdateBeneficiaryRequest;
 use App\Domains\Beneficiaries\Resources\BeneficiaryResource;
 use App\Domains\Beneficiaries\Services\BeneficiaryService;
+use App\Domains\CitizenAccess\Models\EvidenceItem;
+use App\Domains\CitizenAccess\Requests\StoreBeneficiaryEvidenceRequest;
+use App\Domains\Documents\Services\DocumentFileService;
+use App\Domains\Documents\Services\DocumentFolderService;
 use App\Domains\Members\Models\Member;
 use App\Domains\Programs\Models\Program;
 use App\Domains\Projects\Models\Project;
@@ -22,7 +26,9 @@ use Inertia\Response;
 class BeneficiaryController extends Controller
 {
     public function __construct(
-        protected BeneficiaryService $service
+        protected BeneficiaryService $service,
+        protected DocumentFolderService $folderService,
+        protected DocumentFileService $fileService,
     ) {}
 
     public function index(Request $request): Response
@@ -122,6 +128,17 @@ class BeneficiaryController extends Controller
     public function show(Request $request, int $beneficiary)
     {
         $model = $this->service->getById($beneficiary);
+        $model->loadMissing([
+            'evidenceItems' => fn ($query) => $query->with('documentFile:id,title,original_name')->latest()->limit(10),
+            'milestoneAssessments' => fn ($query) => $query
+                ->with(['milestone:id,project_id,title', 'milestone.project:id,name'])
+                ->latest()
+                ->limit(10),
+            'supportCases' => fn ($query) => $query
+                ->with(['serviceStream:id,name', 'opportunity:id,name'])
+                ->latest()
+                ->limit(10),
+        ]);
         $this->authorize('view', $model);
 
         $resource = new BeneficiaryResource($model);
@@ -134,6 +151,45 @@ class BeneficiaryController extends Controller
             'beneficiary' => $resource->resolve(),
             'canManageBeneficiary' => $request->user()?->can('update', $model) ?? false,
         ]);
+    }
+
+    public function storeEvidence(StoreBeneficiaryEvidenceRequest $request, int $beneficiary): RedirectResponse
+    {
+        $model = $this->service->getById($beneficiary);
+        $this->authorize('update', $model);
+
+        $folder = $this->folderService->firstOrCreateOwnedRootFolder(
+            Beneficiary::class,
+            $model->id,
+            trim($model->name.' '.$model->surname).' Evidence',
+            $request->user()
+        );
+
+        $validated = $request->validated();
+        $documentFile = $this->fileService->uploadFile($folder, [
+            'title' => $validated['title'] ?? null,
+            'description' => $validated['description'] ?? null,
+            'file' => $request->file('file'),
+        ], $request->user());
+
+        EvidenceItem::query()->create([
+            'beneficiary_id' => $model->id,
+            'document_file_id' => $documentFile->id,
+            'evidence_type' => $validated['evidence_type'],
+            'issuer' => $validated['issuer'] ?? null,
+            'issue_date' => $validated['issue_date'] ?? null,
+            'expiry_date' => $validated['expiry_date'] ?? null,
+            'upload_source' => 'erp',
+            'uploaded_by_user_id' => $request->user()->id,
+            'verification_status' => $validated['verification_status'] ?? 'pending',
+            'sensitivity_classification' => $validated['sensitivity_classification'] ?? 'personal',
+            'retention_category' => 'beneficiary_support',
+            'archive_status' => 'active',
+        ]);
+
+        return redirect()
+            ->route('beneficiaries.show', $model->id)
+            ->with('success', 'Beneficiary evidence uploaded.');
     }
 
     public function edit(int $beneficiary): Response

@@ -1,6 +1,11 @@
 <?php
 
 use App\Domains\Beneficiaries\Models\Beneficiary;
+use App\Domains\CitizenAccess\Models\AssessmentItem;
+use App\Domains\CitizenAccess\Models\EvidenceItem;
+use App\Domains\CitizenAccess\Models\ReadinessAction;
+use App\Domains\CitizenAccess\Models\ServiceStream;
+use App\Domains\CitizenAccess\Models\SupportCase;
 use App\Domains\Facilitators\Models\Facilitator;
 use App\Domains\Programs\Models\Program;
 use App\Domains\Projects\Models\AttendanceEntry;
@@ -323,6 +328,89 @@ test('project progress service summarizes delivery across project locations', fu
     expect($locationB['beneficiary_completion_rate'])->toBe(0.0);
     expect($locationB['is_blocked'])->toBeTrue();
     expect($locationB['blockers'])->toContain('Attendance has not been captured for this location.');
+});
+
+test('project progress service summarizes beneficiary journey risks by location', function () {
+    $graph = makeProjectProgressGraph(Str::upper(Str::random(5)));
+    $project = $graph['project'];
+    $locationA = $graph['locationA'];
+    $locationB = $graph['locationB'];
+    $stream = ServiceStream::query()->create([
+        'name' => 'University applications',
+        'slug' => 'project-journey-'.Str::lower(Str::random(5)),
+    ]);
+    $beneficiaryA = ProjectEnrollment::query()
+        ->where('project_location_id', $locationA->id)
+        ->firstOrFail()
+        ->beneficiary;
+    $beneficiaryB = ProjectEnrollment::query()
+        ->where('project_location_id', $locationB->id)
+        ->firstOrFail()
+        ->beneficiary;
+
+    EvidenceItem::query()->create([
+        'beneficiary_id' => $beneficiaryA->id,
+        'evidence_type' => 'identity_document',
+        'verification_status' => 'verified',
+    ]);
+    $caseA = SupportCase::query()->create([
+        'case_reference' => 'CAS-260803-PJR01',
+        'beneficiary_id' => $beneficiaryA->id,
+        'program_id' => $project->program_id,
+        'project_id' => $project->id,
+        'project_location_id' => $locationA->id,
+        'service_stream_id' => $stream->id,
+        'priority' => 'high',
+        'stage' => 'assessment_in_progress',
+        'readiness_state' => 'not_document_ready',
+    ]);
+    $assessmentA = AssessmentItem::query()->create([
+        'support_case_id' => $caseA->id,
+        'requirement_snapshot' => ['name' => 'Proof of residence'],
+        'status' => 'evidence_missing',
+        'is_blocking' => true,
+        'evidence_type' => 'proof_of_residence',
+    ]);
+    ReadinessAction::query()->create([
+        'support_case_id' => $caseA->id,
+        'assessment_item_id' => $assessmentA->id,
+        'description' => 'Resolve readiness gap: Proof of residence',
+        'priority' => 'high',
+        'status' => 'open',
+    ]);
+    $caseB = SupportCase::query()->create([
+        'case_reference' => 'CAS-260803-PJR02',
+        'beneficiary_id' => $beneficiaryB->id,
+        'program_id' => $project->program_id,
+        'project_id' => $project->id,
+        'project_location_id' => $locationB->id,
+        'service_stream_id' => $stream->id,
+        'priority' => 'medium',
+        'stage' => 'ready_to_apply',
+        'readiness_state' => 'ready_for_application_support',
+    ]);
+    AssessmentItem::query()->create([
+        'support_case_id' => $caseB->id,
+        'requirement_snapshot' => ['name' => 'Identity document'],
+        'status' => 'verified',
+        'is_blocking' => true,
+        'evidence_type' => 'identity_document',
+    ]);
+
+    $summary = app(ProjectProgressService::class)->summarizeProject($project);
+    $journey = $summary['journey'];
+    $locationAJourney = collect($journey['locations'])->firstWhere('location_id', $locationA->id);
+    $locationBJourney = collect($journey['locations'])->firstWhere('location_id', $locationB->id);
+
+    expect($journey['summary']['open_support_cases'])->toBe(2)
+        ->and($journey['summary']['evidence_gaps'])->toBe(1)
+        ->and($journey['summary']['open_readiness_actions'])->toBe(1)
+        ->and($journey['summary']['locations_with_risks'])->toBeGreaterThanOrEqual(1)
+        ->and($locationAJourney['evidence_gaps'])->toBe(1)
+        ->and($locationAJourney['open_readiness_actions'])->toBe(1)
+        ->and($locationAJourney['at_risk_beneficiaries'][0]['beneficiary_id'])->toBe($beneficiaryA->id)
+        ->and($locationAJourney['at_risk_beneficiaries'][0]['missing_evidence'])->toContain('proof_of_residence')
+        ->and($locationBJourney['evidence_gaps'])->toBe(0);
 });
 
 test('project progress service summarizes the portfolio for the project manager dashboard', function () {

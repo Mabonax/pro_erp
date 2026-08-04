@@ -3,9 +3,13 @@
 namespace Database\Seeders;
 
 use App\Domains\CitizenAccess\Models\Institution;
+use App\Domains\CitizenAccess\Models\OutcomeDefinition;
 use App\Domains\CitizenAccess\Models\Opportunity;
+use App\Domains\CitizenAccess\Models\PathwayStage;
 use App\Domains\CitizenAccess\Models\RequirementDefinition;
 use App\Domains\CitizenAccess\Models\RequirementTemplate;
+use App\Domains\CitizenAccess\Models\ServicePathway;
+use App\Domains\Programs\Models\ProgramCategory;
 use App\Domains\CitizenAccess\Models\ServiceStream;
 use Illuminate\Database\Seeder;
 
@@ -91,6 +95,164 @@ class CitizenAccessSeeder extends Seeder
                     'is_blocking' => true,
                     'staff_guidance' => 'Do not collect sensitive evidence through the anonymous public form.',
                 ]
+            );
+        }
+
+        $this->seedRepresentativePathway(
+            'Citizen Access',
+            'nsfas-funding',
+            'NSFAS Application Support',
+            'NSFAS 2027',
+            'person',
+            [
+                'Intake',
+                'Eligibility screening',
+                'Evidence collection',
+                'Application preparation',
+                'Submission support',
+                'Follow-up',
+                'Outcome capture',
+                'Appeal or escalation',
+            ],
+            [
+                ['South African identity verification', 'eligibility', 'identity_document'],
+                ['Household income assessment', 'eligibility', 'income_evidence'],
+                ['Academic record', 'evidence', 'academic_record'],
+                ['Institution application or acceptance proof', 'conditional', 'institution_proof'],
+                ['Verified contact details', 'readiness', 'contact_confirmation'],
+            ],
+            [
+                ['Application prepared', 'service_output'],
+                ['Application submitted', 'service_output'],
+                ['Funding approved', 'immediate_outcome'],
+                ['Funding rejected', 'immediate_outcome'],
+                ['Appeal submitted', 'service_output'],
+                ['Enrolled', 'longer_term_impact'],
+                ['Funded', 'longer_term_impact'],
+            ]
+        );
+
+        $this->seedRepresentativePathway(
+            'Business Support',
+            'enterprise-livelihood',
+            'Business Compliance Readiness',
+            'Compliance Readiness 2027',
+            'enterprise',
+            [
+                'Business intake',
+                'Compliance diagnosis',
+                'Missing requirement identification',
+                'Evidence collection',
+                'Referral or assisted registration',
+                'Submission tracking',
+                'Compliance verification',
+                'Outcome capture',
+            ],
+            [
+                ['CIPC registration status', 'eligibility', 'cipc_registration'],
+                ['SARS tax number', 'evidence', 'sars_tax_number'],
+                ['Tax Compliance Status', 'readiness', 'tax_compliance_status'],
+                ['B-BBEE affidavit or certificate', 'conditional', 'bbbee_evidence'],
+                ['Business bank account', 'readiness', 'business_bank_account'],
+                ['Municipal trading permit where applicable', 'conditional', 'municipal_trading_permit'],
+                ['Industry-specific licence where applicable', 'conditional', 'industry_specific_licence'],
+            ],
+            [
+                ['CIPC registered', 'immediate_outcome'],
+                ['Tax compliant', 'immediate_outcome'],
+                ['B-BBEE evidence completed', 'service_output'],
+                ['Tender-ready', 'immediate_outcome'],
+                ['Funding-ready', 'immediate_outcome'],
+                ['Host-employer ready', 'longer_term_impact'],
+                ['Compliance blocked', 'immediate_outcome'],
+            ]
+        );
+    }
+
+    private function seedRepresentativePathway(
+        string $categoryName,
+        string $streamSlug,
+        string $pathwayName,
+        string $versionLabel,
+        string $recipientType,
+        array $stages,
+        array $requirements,
+        array $outcomes
+    ): void {
+        $category = ProgramCategory::query()->firstOrCreate(
+            ['slug' => str($categoryName)->slug()->toString()],
+            ['name' => $categoryName, 'description' => 'Representative POA intervention category.']
+        );
+        $stream = ServiceStream::query()->where('slug', $streamSlug)->first();
+
+        if (! $stream) {
+            return;
+        }
+
+        $template = RequirementTemplate::query()->updateOrCreate(
+            ['service_stream_id' => $stream->id, 'name' => $pathwayName.' requirements'],
+            [
+                'description' => 'Representative structured requirements for '.$pathwayName.'.',
+                'status' => 'published',
+            ]
+        );
+        $requirementVersion = $template->versions()->updateOrCreate(
+            ['version_number' => 1],
+            [
+                'status' => 'published',
+                'source_reference' => $versionLabel.' development configuration',
+                'published_at' => now(),
+            ]
+        );
+
+        foreach ($requirements as $index => [$name, $categoryName, $evidenceType]) {
+            RequirementDefinition::query()->updateOrCreate(
+                ['template_version_id' => $requirementVersion->id, 'name' => $name],
+                [
+                    'description' => $name.' must be assessed by the support officer.',
+                    'category' => $categoryName,
+                    'requirement_status' => $categoryName === 'advisory' ? 'optional' : 'mandatory',
+                    'evidence_type' => $evidenceType,
+                    'display_order' => $index + 1,
+                    'is_blocking' => $categoryName !== 'advisory',
+                    'staff_guidance' => 'Use human review and official channel guidance; this is not an automated decision.',
+                ]
+            );
+        }
+
+        $pathway = ServicePathway::query()->updateOrCreate(
+            ['slug' => str($pathwayName)->slug()->toString()],
+            [
+                'program_category_id' => $category->id,
+                'service_stream_id' => $stream->id,
+                'name' => $pathwayName,
+                'purpose' => 'Guide Access to Action to Outcome delivery for '.$pathwayName.'.',
+                'recipient_type' => $recipientType,
+                'status' => 'active',
+                'is_active' => true,
+            ]
+        );
+        $pathwayVersion = $pathway->versions()->updateOrCreate(
+            ['version_number' => 1],
+            [
+                'requirement_template_version_id' => $requirementVersion->id,
+                'label' => $versionLabel,
+                'status' => 'active',
+                'activated_at' => now(),
+            ]
+        );
+
+        foreach ($stages as $index => $stage) {
+            PathwayStage::query()->updateOrCreate(
+                ['service_pathway_version_id' => $pathwayVersion->id, 'slug' => str($stage)->slug()->toString()],
+                ['name' => $stage, 'display_order' => $index + 1, 'is_active' => true]
+            );
+        }
+
+        foreach ($outcomes as $index => [$name, $type]) {
+            OutcomeDefinition::query()->updateOrCreate(
+                ['service_pathway_version_id' => $pathwayVersion->id, 'name' => $name],
+                ['outcome_type' => $type, 'display_order' => $index + 1, 'is_active' => true]
             );
         }
     }

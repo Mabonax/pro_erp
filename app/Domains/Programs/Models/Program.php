@@ -20,6 +20,7 @@ class Program extends Model
 
     protected $fillable = [
         'title',
+        'program_category_id',
         'code',
         'description',
         'strategic_objective',
@@ -42,6 +43,11 @@ class Program extends Model
     public function milestoneTemplates(): HasMany
     {
         return $this->hasMany(ProgramMilestoneTemplate::class, 'program_id');
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ProgramCategory::class, 'program_category_id');
     }
 
     public function projects(): HasMany

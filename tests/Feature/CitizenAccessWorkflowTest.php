@@ -16,9 +16,11 @@ use App\Domains\Projects\Models\ProjectEnrollment;
 use App\Domains\Projects\Models\ProjectLocation;
 use App\Domains\Staff\Models\StaffDepartment;
 use App\Domains\Staff\Models\StaffMember;
+use App\Domains\TaskManagement\Models\WorkTask;
 use App\Models\Provinces;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
@@ -331,6 +333,113 @@ it('creates immutable requirement snapshots and blocks readiness until requireme
         ->assertRedirect();
 
     expect($case->refresh()->readiness_state)->toBe('ready_for_application_support');
+});
+
+it('creates a governed work task from a support case readiness action', function () {
+    Notification::fake();
+
+    $department = StaffDepartment::query()->create([
+        'name' => 'Citizen Access Operations',
+        'description' => 'Case operations team',
+    ]);
+    $manager = User::factory()->create([
+        'name' => 'Case Manager',
+        'email' => 'case.manager@example.test',
+    ]);
+    $staff = StaffMember::query()->create([
+        'user_id' => $manager->id,
+        'department_id' => $department->id,
+        'first_name' => 'Case',
+        'last_name' => 'Manager',
+        'email' => 'case.manager@example.test',
+        'employee_number' => 'CA-'.Str::upper(Str::random(6)),
+        'status' => 'active',
+        'is_manager' => true,
+    ]);
+    $manager->staffMember()->save($staff);
+    grantDomainAccess($manager, 'citizen-access');
+    grantDomainAccess($manager, 'task-management');
+
+    $project = citizenAccessProject();
+    $stream = ServiceStream::query()->create(['name' => 'University applications', 'slug' => 'university-task-bridge']);
+    $beneficiary = Beneficiary::query()->create([
+        'name' => 'Naledi',
+        'surname' => 'Mokoena',
+        'email' => 'naledi-task@example.test',
+        'phone' => '0821234567',
+        'project_id' => $project->id,
+        'program_id' => $project->program_id,
+        'attendance_status' => 'active',
+    ]);
+    $case = SupportCase::query()->create([
+        'case_reference' => 'CAS-260803-TASK1',
+        'beneficiary_id' => $beneficiary->id,
+        'program_id' => $project->program_id,
+        'project_id' => $project->id,
+        'service_stream_id' => $stream->id,
+        'assigned_to_user_id' => $manager->id,
+        'priority' => 'high',
+        'stage' => 'assessment_in_progress',
+    ]);
+    $assessment = AssessmentItem::query()->create([
+        'support_case_id' => $case->id,
+        'requirement_snapshot' => ['name' => 'Certified identity document'],
+        'status' => 'evidence_missing',
+        'is_blocking' => true,
+        'evidence_type' => 'identity_document',
+    ]);
+    $action = ReadinessAction::query()->create([
+        'support_case_id' => $case->id,
+        'assessment_item_id' => $assessment->id,
+        'description' => 'Resolve readiness gap: Certified identity document',
+        'assigned_to_user_id' => $manager->id,
+        'priority' => 'high',
+        'status' => 'open',
+    ]);
+
+    $this->actingAs($manager)
+        ->get("/citizen-access/cases/{$case->id}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('CitizenAccess/Cases/Show')
+            ->where('canCreateReadinessTask', true)
+            ->where('caseRecord.readiness_actions.0.work_task', null)
+        );
+
+    $this->actingAs($manager)
+        ->post("/citizen-access/cases/{$case->id}/readiness-actions/{$action->id}/task", [
+            'assigned_to_user_id' => $manager->id,
+            'assigned_department_id' => '',
+            'priority' => 'high',
+            'due_date' => now()->addDays(2)->toDateString(),
+        ])
+        ->assertRedirect();
+
+    $task = WorkTask::query()->firstOrFail();
+    $action->refresh();
+
+    expect($action->work_task_id)->toBe($task->id)
+        ->and($task->creator_user_id)->toBe($manager->id)
+        ->and($task->assigned_to_user_id)->toBe($manager->id)
+        ->and($task->project_id)->toBe($project->id)
+        ->and($task->program_id)->toBe($project->program_id);
+
+    $this->actingAs($manager)
+        ->get("/citizen-access/cases/{$case->id}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('caseRecord.readiness_actions.0.work_task.id', $task->id)
+            ->where('caseRecord.readiness_actions.0.work_task.status', 'open')
+        );
+
+    $this->actingAs($manager)
+        ->post("/citizen-access/cases/{$case->id}/readiness-actions/{$action->id}/task", [
+            'assigned_to_user_id' => $manager->id,
+            'priority' => 'high',
+        ])
+        ->assertRedirect(route('task-management.tasks.show', $task));
+
+    expect(WorkTask::query()->count())->toBe(1);
 });
 
 it('records application referral follow up and outcome activities on a support case', function () {
