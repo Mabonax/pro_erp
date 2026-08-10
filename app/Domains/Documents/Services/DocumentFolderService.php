@@ -13,6 +13,7 @@ use App\Domains\Projects\Models\ProjectLocation;
 use App\Domains\Staff\Models\StaffDepartment;
 use App\Domains\Stakeholders\Models\Stakeholder;
 use App\Domains\Beneficiaries\Models\Beneficiary;
+use App\Domains\Enterprises\Models\Enterprise;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -296,6 +297,7 @@ class DocumentFolderService
             Project::class,
             ProjectLocation::class,
             Beneficiary::class,
+            Enterprise::class,
             Stakeholder::class,
             StaffDepartment::class => $ownerType,
             default => throw ValidationException::withMessages([
@@ -314,6 +316,7 @@ class DocumentFolderService
             Project::class => 'Projects',
             ProjectLocation::class => 'Project Locations',
             Beneficiary::class => 'Beneficiaries',
+            Enterprise::class => 'Enterprises',
             Stakeholder::class => 'Stakeholders',
             StaffDepartment::class => 'HR',
             default => 'Documents',

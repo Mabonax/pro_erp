@@ -10,7 +10,14 @@ use App\Domains\CitizenAccess\Models\RequirementDefinition;
 use App\Domains\CitizenAccess\Models\RequirementTemplate;
 use App\Domains\CitizenAccess\Models\ServicePathway;
 use App\Domains\Programs\Models\ProgramCategory;
+use App\Domains\Programs\Models\Program;
+use App\Domains\Projects\Models\Project;
+use App\Domains\Projects\Models\ProjectLocation;
 use App\Domains\CitizenAccess\Models\ServiceStream;
+use App\Domains\Facilitators\Models\Facilitator;
+use App\Domains\Staff\Models\StaffDepartment;
+use App\Domains\Staff\Models\StaffMember;
+use App\Models\Provinces;
 use Illuminate\Database\Seeder;
 
 class CitizenAccessSeeder extends Seeder
@@ -51,15 +58,27 @@ class CitizenAccessSeeder extends Seeder
                 'is_active' => true,
             ]
         );
+        $deliveryGraph = $this->ensurePublicOfferingDeliveryGraph();
 
         foreach (ServiceStream::query()->get() as $stream) {
             $opportunity = Opportunity::query()->updateOrCreate(
                 ['service_stream_id' => $stream->id, 'name' => $stream->name.' support'],
                 [
                     'institution_id' => $institution->id,
-                    'opportunity_type' => 'support_stream',
+                    'program_id' => $deliveryGraph['program']->id,
+                    'project_id' => $deliveryGraph['project']->id,
+                    'project_location_id' => $deliveryGraph['location']->id,
+                    'opportunity_type' => 'access_offering',
+                    'status' => 'published',
                     'description' => 'Development/sample opportunity for workflow verification.',
+                    'public_slug' => $stream->slug,
+                    'public_title' => $stream->name,
+                    'public_summary' => 'Development/sample assistance offering for '.$stream->name.'.',
+                    'public_help_text' => 'Staff must verify current official requirements before actioning this request.',
                     'is_active' => true,
+                    'is_published' => true,
+                    'published_at' => now(),
+                    'archived_at' => null,
                 ]
             );
 
@@ -96,6 +115,8 @@ class CitizenAccessSeeder extends Seeder
                     'staff_guidance' => 'Do not collect sensitive evidence through the anonymous public form.',
                 ]
             );
+
+            $opportunity->update(['requirement_template_id' => $template->id]);
         }
 
         $this->seedRepresentativePathway(
@@ -167,6 +188,85 @@ class CitizenAccessSeeder extends Seeder
                 ['Compliance blocked', 'immediate_outcome'],
             ]
         );
+    }
+
+    private function ensurePublicOfferingDeliveryGraph(): array
+    {
+        $department = StaffDepartment::query()->firstOrCreate(
+            ['name' => 'Citizen Access Operations'],
+            ['description' => 'Development/sample owner for public assistance offerings.']
+        );
+
+        $manager = StaffMember::query()->updateOrCreate(
+            ['email' => 'citizen-access-manager@poa.local'],
+            [
+                'department_id' => $department->id,
+                'first_name' => 'Citizen',
+                'last_name' => 'Access Manager',
+                'employee_number' => 'POA-CAP-MGR',
+                'status' => 'active',
+            ]
+        );
+
+        $category = ProgramCategory::query()->firstOrCreate(
+            ['slug' => 'citizen-access'],
+            ['name' => 'Citizen Access', 'description' => 'Public access-to-opportunity support.']
+        );
+
+        $program = Program::query()->updateOrCreate(
+            ['slug' => 'citizen-access-programme'],
+            [
+                'program_category_id' => $category->id,
+                'title' => 'Citizen Access Programme',
+                'code' => 'CAP',
+                'description' => 'Development/sample programme connecting public requests to internal support workflows.',
+                'start_date' => now()->startOfYear()->toDateString(),
+                'status' => 'active',
+                'programme_manager_id' => $manager->id,
+            ]
+        );
+
+        $project = Project::query()->updateOrCreate(
+            ['project_code' => 'CAP-PUBLIC-INTAKE'],
+            [
+                'program_id' => $program->id,
+                'project_manager_id' => $manager->id,
+                'name' => 'Public Assistance Intake',
+                'primary_location' => 'National remote intake',
+                'start_date' => now()->startOfYear()->toDateString(),
+                'status' => 'active',
+                'description' => 'Development/sample project used to receive public website assistance requests.',
+            ]
+        );
+
+        $province = Provinces::query()->firstOrCreate(['name' => 'Gauteng']);
+
+        $facilitator = Facilitator::query()->updateOrCreate(
+            ['email' => 'citizen-access-desk@poa.local'],
+            [
+                'name' => 'Citizen',
+                'surname' => 'Access Desk',
+                'dob' => '1990-01-01',
+                'id_number' => '9001015000000',
+                'address' => 'Program of Action public intake desk',
+                'cell' => '0700000000',
+                'specialization' => 'Citizen access intake',
+                'province_id' => $province->id,
+            ]
+        );
+
+        $location = ProjectLocation::query()->updateOrCreate(
+            [
+                'project_id' => $project->id,
+                'training_venue_address' => 'Program of Action public intake desk',
+            ],
+            [
+                'facilitator_id' => $facilitator->id,
+                'province_id' => $province->id,
+            ]
+        );
+
+        return compact('program', 'project', 'location');
     }
 
     private function seedRepresentativePathway(

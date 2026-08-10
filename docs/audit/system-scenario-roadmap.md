@@ -10,6 +10,8 @@ The first implemented slice from this audit is the beneficiary service journey: 
 
 The second implemented slice strengthens the service-delivery architecture above those workflows: programmes remain strategic interventions, service pathways define reusable service blueprints, service offerings connect pathway versions to projects and locations, and Citizen Access support cases can now serve either natural-person beneficiaries or enterprise recipients through the same case engine.
 
+The third implemented slice makes enterprise support operational: enterprises now have dedicated pages, profile editing, governed people-role links, enterprise-owned document-library evidence upload, linked support-case visibility, and a direct shortcut into enterprise support-case creation.
+
 ## Method
 
 - Authenticated locally as the seeded super-admin at `http://127.0.0.1:8001`.
@@ -140,6 +142,18 @@ Businesses are now modeled separately from beneficiaries:
 - Citizen Access support cases can now serve either one beneficiary or one enterprise.
 - `EvidenceItem` can link to either a beneficiary or an enterprise while still using the Document Library for files.
 
+### Enterprise Profile Workflow
+
+Enterprises now have a proper workspace separate from the compact Citizen Access admin forms:
+
+- Enterprise index lists businesses with registration, sector, location, case count, evidence count, and linked person-role count.
+- Enterprise create and edit pages manage legal identity, trading identity, compliance status, contact details, location, address, notes, and active state.
+- Enterprise profile shows the business summary, governed people/roles, linked support cases, and enterprise evidence.
+- Enterprise profile can link a person as owner, director, primary contact, authorised representative, employee, or mentor/advisor.
+- Enterprise profile can upload business evidence directly into the Document Library, with the document folder owned by the `Enterprise` model.
+- Enterprise profile has a direct `Open support case` action that preselects the enterprise on Citizen Access case creation.
+- Citizen Access case list now displays a generic recipient name, so enterprise cases no longer appear as blank beneficiary cases.
+
 ### Recipient Database Decision
 
 The selected design uses explicit nullable foreign keys: `beneficiary_id` and `enterprise_id`, with `recipient_type` as the service-recipient discriminator.
@@ -163,10 +177,11 @@ The business compliance pathway includes stages for business intake, compliance 
 2. Add project/activity context to finance travel claims.
 3. Add project-location asset assignment views for equipment used in delivery.
 4. Add role templates for common users: intake officer, programme manager, facilitator, finance officer, marketing officer, and executive viewer.
-5. Add dedicated index/detail/edit pages for Service Pathways and Enterprises once the compact admin forms prove the data model.
+5. Add dedicated index/detail/edit pages for Service Pathways once the compact admin forms prove the data model.
 6. Add a safe backfill command to attach existing published opportunities to representative pathway versions.
-7. Add enterprise evidence upload UI, reusing the Document Library ownership conventions already proven for beneficiary evidence.
+7. Add richer enterprise compliance status dashboards and evidence-to-requirement matching.
 8. Add explicit application/outcome records tied to `OutcomeDefinition` rather than free-text case activity categories.
+9. Add navigation/sidebar entry for Enterprises once placement in the main information architecture is agreed.
 
 ## Verification
 
@@ -183,5 +198,7 @@ The business compliance pathway includes stages for business intake, compliance 
 - `php artisan test tests\Feature\TaskManagementDomainTest.php --filter="department manager can assign task to a direct report"`
 - `php artisan test tests\Feature\Projects\ProjectProgressServiceTest.php`
 - `php artisan test tests\Feature\CitizenAccessServicePathwayArchitectureTest.php`
+- `php artisan test tests\Feature\EnterpriseWorkflowTest.php`
 - `php artisan route:list --path=citizen-access`
+- `php artisan route:list --path=enterprises`
 - `npm.cmd run build`

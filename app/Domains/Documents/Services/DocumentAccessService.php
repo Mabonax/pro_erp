@@ -5,6 +5,7 @@ namespace App\Domains\Documents\Services;
 use App\Domains\Beneficiaries\Models\Beneficiary;
 use App\Domains\Documents\Models\DocumentFile;
 use App\Domains\Documents\Models\DocumentFolder;
+use App\Domains\Enterprises\Models\Enterprise;
 use App\Domains\Organization\Models\OrganizationProfile;
 use App\Domains\Programs\Models\Program;
 use App\Domains\Projects\Models\Project;
@@ -20,7 +21,7 @@ class DocumentAccessService
 
     public function canViewAny(User $user): bool
     {
-        foreach (['organization', 'programs', 'projects', 'beneficiaries', 'stakeholders', 'human-resources'] as $domain) {
+        foreach (['organization', 'programs', 'projects', 'beneficiaries', 'citizen-access', 'stakeholders', 'human-resources'] as $domain) {
             if ($this->canViewDomain($user, $domain)) {
                 return true;
             }
@@ -64,6 +65,7 @@ class DocumentAccessService
             Program::class => $this->canViewDomain($user, 'programs'),
             Project::class, ProjectLocation::class => $this->canViewDomain($user, 'projects'),
             Beneficiary::class => $this->canViewDomain($user, 'beneficiaries'),
+            Enterprise::class => $this->canViewDomain($user, 'citizen-access'),
             Stakeholder::class => $this->canViewDomain($user, 'stakeholders'),
             StaffDepartment::class => $this->canViewDomain($user, 'human-resources'),
             null => false,
@@ -78,6 +80,7 @@ class DocumentAccessService
             Program::class => $this->canManageDomain($user, 'programs'),
             Project::class, ProjectLocation::class => $this->canManageDomain($user, 'projects'),
             Beneficiary::class => $this->canManageDomain($user, 'beneficiaries'),
+            Enterprise::class => $this->canManageDomain($user, 'citizen-access'),
             Stakeholder::class => $this->canManageDomain($user, 'stakeholders'),
             StaffDepartment::class => $this->canManageDomain($user, 'human-resources'),
             null => false,

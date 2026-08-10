@@ -61,6 +61,15 @@ class AccessControlSeeder extends Seeder
             'business-development.adjudications.score',
         ];
 
+        $citizenAccessOfferingPermissions = [
+            'citizen-access.offerings.view',
+            'citizen-access.offerings.create',
+            'citizen-access.offerings.update',
+            'citizen-access.offerings.publish',
+            'citizen-access.offerings.archive',
+            'citizen-access.offerings.delete',
+        ];
+
         $technicalTicketPermissions = [
             'technical-tickets.respond',
         ];
@@ -94,6 +103,7 @@ class AccessControlSeeder extends Seeder
             ...$projectActivityPermissions,
             ...$attendancePermissions,
             ...$businessDevelopmentWorkflowPermissions,
+            ...$citizenAccessOfferingPermissions,
             ...$technicalTicketPermissions,
             ...$travelClaimPermissions,
             ...$marketingWorkflowPermissions,
@@ -258,6 +268,7 @@ class AccessControlSeeder extends Seeder
                 'domain.beneficiaries.manage',
                 'domain.citizen-access.view',
                 'domain.citizen-access.manage',
+                ...$citizenAccessOfferingPermissions,
                 'domain.volunteers.view',
                 'domain.volunteers.manage',
                 'domain.monitoring-evaluation.view',

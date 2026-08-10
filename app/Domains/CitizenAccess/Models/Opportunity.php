@@ -5,6 +5,8 @@ namespace App\Domains\CitizenAccess\Models;
 use App\Domains\Programs\Models\Program;
 use App\Domains\Projects\Models\Project;
 use App\Domains\Projects\Models\ProjectLocation;
+use App\Domains\Facilitators\Models\Facilitator;
+use App\Domains\Staff\Models\StaffMember;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,10 +25,20 @@ class Opportunity extends Model
         'requirement_template_id',
         'service_pathway_id',
         'service_pathway_version_id',
+        'owner_staff_id',
+        'facilitator_id',
         'name',
         'opportunity_type',
+        'status',
         'description',
+        'delivery_channel',
+        'delivery_mode',
+        'target_audience',
+        'province',
+        'municipality',
         'official_url',
+        'external_provider',
+        'contact_reference',
         'public_slug',
         'public_title',
         'public_summary',
@@ -34,20 +46,25 @@ class Opportunity extends Model
         'is_active',
         'is_published',
         'published_at',
+        'archived_at',
         'opens_on',
         'closes_on',
         'capacity',
         'display_order',
+        'notes',
+        'metadata',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'is_published' => 'boolean',
         'published_at' => 'datetime',
+        'archived_at' => 'datetime',
         'opens_on' => 'date:Y-m-d',
         'closes_on' => 'date:Y-m-d',
         'capacity' => 'integer',
         'display_order' => 'integer',
+        'metadata' => 'array',
     ];
 
     public function serviceStream(): BelongsTo
@@ -80,6 +97,16 @@ class Opportunity extends Model
         return $this->belongsTo(RequirementTemplate::class, 'requirement_template_id');
     }
 
+    public function ownerStaff(): BelongsTo
+    {
+        return $this->belongsTo(StaffMember::class, 'owner_staff_id');
+    }
+
+    public function facilitator(): BelongsTo
+    {
+        return $this->belongsTo(Facilitator::class, 'facilitator_id');
+    }
+
     public function servicePathway(): BelongsTo
     {
         return $this->belongsTo(ServicePathway::class, 'service_pathway_id');
@@ -100,6 +127,8 @@ class Opportunity extends Model
         return $query
             ->where('is_active', true)
             ->where('is_published', true)
+            ->where('status', 'published')
+            ->whereNull('archived_at')
             ->whereNotNull('public_slug')
             ->whereNotNull('public_title')
             ->whereNotNull('program_id')

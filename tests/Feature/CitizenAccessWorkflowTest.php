@@ -19,6 +19,7 @@ use App\Domains\Staff\Models\StaffMember;
 use App\Domains\TaskManagement\Models\WorkTask;
 use App\Models\Provinces;
 use App\Models\User;
+use Database\Seeders\CitizenAccessSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
@@ -131,6 +132,7 @@ function citizenAccessOffering(string $slug = 'nsfas-funding'): Opportunity
         'requirement_template_id' => $template->id,
         'name' => Str::headline($slug),
         'opportunity_type' => 'access_offering',
+        'status' => 'published',
         'description' => 'Configured public offering.',
         'public_slug' => $slug,
         'public_title' => Str::headline($slug),
@@ -138,6 +140,7 @@ function citizenAccessOffering(string $slug = 'nsfas-funding'): Opportunity
         'is_active' => true,
         'is_published' => true,
         'published_at' => now(),
+        'archived_at' => null,
     ]);
 }
 
@@ -179,6 +182,7 @@ it('publishes only complete active offerings through the public api', function (
         'service_stream_id' => ServiceStream::query()->first()->id,
         'name' => 'Draft offering',
         'opportunity_type' => 'access_offering',
+        'status' => 'draft',
         'public_slug' => 'draft-offering',
         'public_title' => 'Draft offering',
         'is_active' => true,
@@ -191,6 +195,21 @@ it('publishes only complete active offerings through the public api', function (
         ->assertJsonPath('data.0.slug', 'nsfas-funding')
         ->assertJsonMissing(['slug' => 'draft-offering'])
         ->assertJsonMissing(['project_id' => 1]);
+});
+
+it('seeds publishable public offerings for the website bridge', function () {
+    config(['services.citizen_access.public_intake_token' => 'secret-token']);
+
+    $this->seed(CitizenAccessSeeder::class);
+
+    $this->withToken('secret-token')
+        ->getJson('/api/public/v1/offerings')
+        ->assertOk()
+        ->assertJsonPath('data.0.slug', 'agriculture-support')
+        ->assertJsonPath('data.0.title', 'Agriculture support programmes')
+        ->assertJsonMissing(['project_id' => 1]);
+
+    expect(Opportunity::query()->publishedPublic()->count())->toBe(12);
 });
 
 it('rejects unknown or unpublished offering slugs', function () {

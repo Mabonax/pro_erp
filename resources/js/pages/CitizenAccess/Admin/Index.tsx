@@ -209,6 +209,7 @@ export default function Index({
                 <div>
                     <h1 className="text-2xl font-semibold">Institutional requirements administration</h1>
                     <p className="text-sm text-muted-foreground">Configure streams, institutions, access offerings and requirement templates. Published offerings feed the public assistance page.</p>
+                    <a href="/citizen-access/admin/offerings" className="mt-3 inline-flex rounded-md border px-3 py-2 text-sm font-medium">Manage offerings</a>
                 </div>
                 <section className="grid gap-4 lg:grid-cols-3">
                     <SimpleForm title="Program category" action="/citizen-access/admin/program-categories" fields={[{ name: 'name', label: 'Name' }, { name: 'slug', label: 'Slug' }, { name: 'description', label: 'Description' }]} />

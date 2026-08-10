@@ -13,6 +13,7 @@ use App\Domains\CitizenAccess\Models\ServicePathway;
 use App\Domains\CitizenAccess\Models\ServicePathwayVersion;
 use App\Domains\CitizenAccess\Models\ServiceStream;
 use App\Domains\CitizenAccess\Services\CitizenAccessAuditService;
+use App\Domains\CitizenAccess\Services\OpportunityPublicationReadinessService;
 use App\Domains\Enterprises\Models\Enterprise;
 use App\Domains\Enterprises\Models\EnterprisePersonRole;
 use App\Domains\Programs\Models\ProgramCategory;
@@ -30,7 +31,10 @@ use Inertia\Response;
 
 class CitizenAccessAdminController extends Controller
 {
-    public function __construct(private CitizenAccessAuditService $audit) {}
+    public function __construct(
+        private CitizenAccessAuditService $audit,
+        private OpportunityPublicationReadinessService $publicationReadiness,
+    ) {}
 
     public function index(): Response
     {
@@ -294,6 +298,10 @@ class CitizenAccessAdminController extends Controller
         $validated['published_at'] = $validated['is_published']
             ? ($opportunity?->published_at ?? now())
             : null;
+        $validated['status'] = $validated['is_published']
+            ? 'published'
+            : ($validated['is_active'] ? 'ready' : 'draft');
+        $validated['archived_at'] = null;
 
         $this->assertPublishable($validated, $opportunity);
 
@@ -306,62 +314,10 @@ class CitizenAccessAdminController extends Controller
             return;
         }
 
-        $messages = [];
+        $readiness = $this->publicationReadiness->evaluateDraft($data, $opportunity);
 
-        foreach ([
-            'service_stream_id' => 'Choose an active service stream before publishing.',
-            'program_id' => 'Choose a programme before publishing.',
-            'project_id' => 'Choose a project before publishing.',
-            'project_location_id' => 'Choose a project location before publishing.',
-            'requirement_template_id' => 'Choose a requirement template before publishing.',
-            'service_pathway_version_id' => 'Choose an active service pathway version before publishing.',
-            'public_slug' => 'Set a public slug before publishing.',
-            'public_title' => 'Set a public title before publishing.',
-        ] as $field => $message) {
-            if (blank($data[$field] ?? null)) {
-                $messages[$field][] = $message;
-            }
-        }
-
-        if (! ($data['is_active'] ?? false)) {
-            $messages['is_active'][] = 'An offering must be active before it can be published.';
-        }
-
-        if (! empty($data['service_stream_id']) && ! ServiceStream::query()->whereKey($data['service_stream_id'])->where('is_active', true)->exists()) {
-            $messages['service_stream_id'][] = 'The selected service stream is not active.';
-        }
-
-        if (! empty($data['project_id']) && ! empty($data['program_id']) && ! Project::query()->whereKey($data['project_id'])->where('program_id', $data['program_id'])->exists()) {
-            $messages['project_id'][] = 'The selected project must belong to the selected programme.';
-        }
-
-        if (! empty($data['project_location_id']) && ! empty($data['project_id']) && ! ProjectLocation::query()->whereKey($data['project_location_id'])->where('project_id', $data['project_id'])->exists()) {
-            $messages['project_location_id'][] = 'The selected project location must belong to the selected project.';
-        }
-
-        if (! empty($data['requirement_template_id']) && ! RequirementTemplate::query()
-            ->whereKey($data['requirement_template_id'])
-            ->whereHas('versions', fn ($query) => $query->where('status', 'published'))
-            ->exists()) {
-            $messages['requirement_template_id'][] = 'The selected requirement template must have a published version.';
-        }
-
-        if (! empty($data['service_pathway_version_id']) && ! ServicePathwayVersion::query()
-            ->whereKey($data['service_pathway_version_id'])
-            ->where('status', 'active')
-            ->exists()) {
-            $messages['service_pathway_version_id'][] = 'The selected pathway version must be active.';
-        }
-
-        if (! empty($data['service_pathway_id']) && ! empty($data['service_pathway_version_id']) && ! ServicePathwayVersion::query()
-            ->whereKey($data['service_pathway_version_id'])
-            ->where('service_pathway_id', $data['service_pathway_id'])
-            ->exists()) {
-            $messages['service_pathway_version_id'][] = 'The selected pathway version must belong to the selected pathway.';
-        }
-
-        if ($messages !== []) {
-            throw ValidationException::withMessages($messages);
+        if (! $readiness->ready) {
+            throw ValidationException::withMessages($readiness->validationMessages());
         }
     }
 
