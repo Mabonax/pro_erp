@@ -9,6 +9,7 @@ use App\Domains\CitizenAccess\Models\RequirementDefinition;
 use App\Domains\CitizenAccess\Models\RequirementTemplate;
 use App\Domains\CitizenAccess\Models\ServiceStream;
 use App\Domains\CitizenAccess\Models\SupportCase;
+use App\Domains\Enterprises\Models\Enterprise;
 use App\Domains\Facilitators\Models\Facilitator;
 use App\Domains\Programs\Models\Program;
 use App\Domains\Projects\Models\Project;
@@ -18,6 +19,7 @@ use App\Domains\Staff\Models\StaffDepartment;
 use App\Domains\Staff\Models\StaffMember;
 use App\Domains\TaskManagement\Models\WorkTask;
 use App\Models\Provinces;
+use App\Models\NextOfKin;
 use App\Models\User;
 use Database\Seeders\CitizenAccessSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,6 +41,7 @@ function citizenAccessPayload(array $overrides = []): array
         'selected_needs' => ['nsfas-funding', 'university-applications'],
         'assistance_description' => 'I need help preparing applications.',
         'consent_to_contact' => true,
+        'consent_to_process_data' => true,
         'privacy_notice_accepted' => true,
         'information_accuracy_confirmed' => true,
         'idempotency_key' => 'idem-'.Str::random(8),
@@ -78,7 +81,7 @@ function citizenAccessProject(): Project
     ]);
 }
 
-function citizenAccessOffering(string $slug = 'nsfas-funding'): Opportunity
+function citizenAccessOffering(string $slug = 'nsfas-funding', array $overrides = []): Opportunity
 {
     $project = citizenAccessProject();
     $province = Provinces::query()->create(['name' => 'Gauteng '.Str::upper(Str::random(4))]);
@@ -141,6 +144,7 @@ function citizenAccessOffering(string $slug = 'nsfas-funding'): Opportunity
         'is_published' => true,
         'published_at' => now(),
         'archived_at' => null,
+        'metadata' => $overrides['metadata'] ?? [],
     ]);
 }
 
@@ -193,6 +197,7 @@ it('publishes only complete active offerings through the public api', function (
         ->getJson('/api/public/v1/offerings')
         ->assertOk()
         ->assertJsonPath('data.0.slug', 'nsfas-funding')
+        ->assertJsonStructure(['data' => [['support_area' => ['slug', 'label', 'summary', 'display_order']]]])
         ->assertJsonMissing(['slug' => 'draft-offering'])
         ->assertJsonMissing(['project_id' => 1]);
 });
@@ -294,6 +299,94 @@ it('lets an officer convert an offering intake into beneficiary workflow records
         ->and(SupportCase::query()->count())->toBe(1)
         ->and(AssessmentItem::query()->count())->toBe(1)
         ->and(ReadinessAction::query()->count())->toBe(1);
+});
+
+it('converts parent submitted school access into child beneficiary with requester as next of kin', function () {
+    config(['services.citizen_access.public_intake_token' => 'secret-token']);
+    $officer = grantDomainAccess(User::factory()->create(), 'citizen-access');
+    $offering = citizenAccessOffering('school-admissions', [
+        'metadata' => [
+            'recipient_context' => 'child',
+            'allows_guardian_submission' => true,
+            'requires_beneficiary_details' => true,
+        ],
+    ]);
+
+    $reference = $this->withToken('secret-token')
+        ->postJson('/api/public/v1/intakes', citizenAccessPayload([
+            'selected_needs' => ['school-admissions'],
+            'submission_context' => 'parent_guardian',
+            'recipient_context' => 'child',
+            'first_name' => 'Thandi',
+            'surname' => 'Mokoena',
+            'mobile_number' => '0820001111',
+            'email' => 'thandi.parent@example.test',
+            'beneficiary_first_name' => 'Neo',
+            'beneficiary_surname' => 'Mokoena',
+            'beneficiary_date_of_birth' => now()->subYears(7)->toDateString(),
+            'beneficiary_grade' => 'Grade 1',
+            'beneficiary_school_year' => '2027',
+            'beneficiary_relationship' => 'parent',
+        ]))
+        ->assertCreated()
+        ->json('public_reference');
+
+    $intake = Intake::query()->where('public_reference', $reference)->firstOrFail();
+
+    $this->actingAs($officer)
+        ->post("/citizen-access/intakes/{$intake->id}/convert", [
+            'project_id' => $offering->project_id,
+            'program_id' => $offering->program_id,
+        ])
+        ->assertRedirect();
+
+    $beneficiary = Beneficiary::query()->with('nextOfKin')->firstOrFail();
+
+    expect($beneficiary->name)->toBe('Neo')
+        ->and($beneficiary->surname)->toBe('Mokoena')
+        ->and($beneficiary->nextOfKin)->not->toBeNull()
+        ->and($beneficiary->nextOfKin->name)->toBe('Thandi')
+        ->and($beneficiary->nextOfKin->relationship)->toBe('parent')
+        ->and(NextOfKin::query()->count())->toBe(1)
+        ->and(SupportCase::query()->where('beneficiary_id', $beneficiary->id)->where('opportunity_id', $offering->id)->count())->toBe(1);
+});
+
+it('converts enterprise support selections into one enterprise case per offering', function () {
+    config(['services.citizen_access.public_intake_token' => 'secret-token']);
+    $officer = grantDomainAccess(User::factory()->create(), 'citizen-access');
+    $compliance = citizenAccessOffering('business-compliance', ['metadata' => ['recipient_context' => 'enterprise']]);
+    $funding = citizenAccessOffering('business-funding', ['metadata' => ['recipient_context' => 'enterprise']]);
+
+    $reference = $this->withToken('secret-token')
+        ->postJson('/api/public/v1/intakes', citizenAccessPayload([
+            'selected_needs' => ['business-compliance', 'business-funding'],
+            'submission_context' => 'enterprise_representative',
+            'recipient_context' => 'enterprise',
+            'first_name' => 'Kabelo',
+            'surname' => 'Dlamini',
+            'email' => 'owner@example.test',
+            'enterprise_name' => 'Kabelo Trading',
+            'enterprise_registration_status' => 'not_registered',
+            'current_position' => 'Entrepreneur',
+        ]))
+        ->assertCreated()
+        ->json('public_reference');
+
+    $intake = Intake::query()->where('public_reference', $reference)->firstOrFail();
+
+    $this->actingAs($officer)
+        ->post("/citizen-access/intakes/{$intake->id}/convert", [
+            'project_id' => $compliance->project_id,
+            'program_id' => $compliance->program_id,
+        ])
+        ->assertRedirect();
+
+    $enterprise = Enterprise::query()->where('legal_name', 'Kabelo Trading')->firstOrFail();
+
+    expect(SupportCase::query()->where('enterprise_id', $enterprise->id)->count())->toBe(2)
+        ->and(SupportCase::query()->where('opportunity_id', $compliance->id)->count())->toBe(1)
+        ->and(SupportCase::query()->where('opportunity_id', $funding->id)->count())->toBe(1)
+        ->and($enterprise->people()->where('person_email', 'owner@example.test')->exists())->toBeTrue();
 });
 
 it('creates immutable requirement snapshots and blocks readiness until requirements are satisfied', function () {

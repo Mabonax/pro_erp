@@ -59,7 +59,10 @@ class CitizenAccessAdminController extends Controller
         $stream = ServiceStream::query()->create($request->validate([
             'name' => ['required', 'string', 'max:160'],
             'slug' => ['required', 'string', 'max:160', 'unique:citizen_access_service_streams,slug'],
+            'public_label' => ['nullable', 'string', 'max:120'],
             'description' => ['nullable', 'string', 'max:2000'],
+            'public_summary' => ['nullable', 'string', 'max:2000'],
+            'public_display_order' => ['nullable', 'integer', 'min:0', 'max:100000'],
         ]));
         $this->audit->record('service_stream.created', $stream, $request->user());
 

@@ -1,5 +1,5 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { Archive, CheckCircle2, Copy, Pencil, RotateCcw, XCircle } from 'lucide-react';
+import { Archive, CheckCircle2, Copy, Pencil, Power, RotateCcw, XCircle } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
@@ -13,7 +13,14 @@ export default function Show({ offering, permissions }: { offering: Offering; pe
         { title: offering.name, href: `/citizen-access/admin/offerings/${offering.id}` },
     ];
 
-    function action(path: string) {
+    const publicVisibility = offering.is_published && offering.status === 'published' && offering.is_active && !offering.archived_at ? 'Visible on public website' : 'Not visible on public website';
+    const publishReady = offering.publish_readiness ?? offering.readiness;
+
+    function action(path: string, confirmation?: string) {
+        if (confirmation && !window.confirm(confirmation)) {
+            return;
+        }
+
         router.post(path, {}, { preserveScroll: true });
     }
 
@@ -28,10 +35,12 @@ export default function Show({ offering, permissions }: { offering: Offering; pe
                     </div>
                     <div className="flex flex-wrap gap-2">
                         {permissions.update ? <Link href={`/citizen-access/admin/offerings/${offering.id}/edit`} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><Pencil className="h-4 w-4" /> Edit</Link> : null}
-                        {permissions.publish && !offering.is_published ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/publish`)} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><CheckCircle2 className="h-4 w-4" /> Publish</button> : null}
-                        {permissions.publish && offering.is_published ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/unpublish`)} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><XCircle className="h-4 w-4" /> Unpublish</button> : null}
-                        {permissions.archive && !offering.archived_at ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/archive`)} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><Archive className="h-4 w-4" /> Archive</button> : null}
-                        {permissions.archive && offering.archived_at ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/restore`)} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><RotateCcw className="h-4 w-4" /> Restore</button> : null}
+                        {permissions.publish && !offering.is_published ? <button disabled={!publishReady.ready} onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/publish`, 'Publish this offering to the public website?')} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="h-4 w-4" /> Publish Offering</button> : null}
+                        {permissions.publish && offering.is_published ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/unpublish`, 'Unpublish this offering and remove it from the public website?')} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><XCircle className="h-4 w-4" /> Unpublish Offering</button> : null}
+                        {permissions.update && offering.is_active ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/deactivate`, 'Deactivate this offering and remove it from the public website?')} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><Power className="h-4 w-4" /> Deactivate Offering</button> : null}
+                        {permissions.update && !offering.is_active && !offering.archived_at ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/activate`)} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><Power className="h-4 w-4" /> Activate Offering</button> : null}
+                        {permissions.archive && !offering.archived_at ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/archive`, 'Archive this offering and remove it from the public website?')} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><Archive className="h-4 w-4" /> Archive Offering</button> : null}
+                        {permissions.archive && offering.archived_at ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/restore`, 'Restore this offering as a draft?')} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><RotateCcw className="h-4 w-4" /> Restore Offering</button> : null}
                         {permissions.create ? <button onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/duplicate`)} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"><Copy className="h-4 w-4" /> Duplicate</button> : null}
                     </div>
                 </div>
@@ -40,9 +49,17 @@ export default function Show({ offering, permissions }: { offering: Offering; pe
                     <div className="grid gap-4 rounded-lg border bg-card p-4">
                         <h2 className="font-semibold">Details</h2>
                         <dl className="grid gap-3 md:grid-cols-2">
-                            <Item label="Status" value={`${offering.status} / ${offering.is_active ? 'active' : 'inactive'}`} />
+                            <div>
+                                <dt className="text-xs font-semibold uppercase text-muted-foreground">Publication status</dt>
+                                <dd className="mt-2 flex flex-wrap gap-2">
+                                    <Badge tone={offering.is_published && offering.status === 'published' ? 'green' : 'zinc'}>{offering.is_published && offering.status === 'published' ? 'Published' : 'Draft / Unpublished'}</Badge>
+                                    <Badge tone={offering.is_active ? 'green' : 'amber'}>{offering.is_active ? 'Active' : 'Inactive'}</Badge>
+                                    <Badge tone={offering.archived_at ? 'red' : 'green'}>{offering.archived_at ? 'Archived' : 'Current'}</Badge>
+                                </dd>
+                            </div>
+                            <Item label="Public website visibility" value={publicVisibility} />
                             <Item label="Service stream" value={offering.service_stream?.name} />
-                            <Item label="Programme" value={offering.program?.title} />
+                            <Item label="Program" value={offering.program?.title} />
                             <Item label="Project" value={offering.project?.name} />
                             <Item label="Location" value={offering.project_location?.province?.name ?? offering.province} />
                             <Item label="Template" value={offering.requirement_template?.name} />
@@ -58,14 +75,18 @@ export default function Show({ offering, permissions }: { offering: Offering; pe
 
                     <div className="grid gap-4 rounded-lg border bg-card p-4">
                         <div>
-                            <h2 className="font-semibold">Public Offering Readiness</h2>
-                            <p className={`mt-1 text-sm font-semibold ${offering.readiness.ready ? 'text-emerald-700' : 'text-rose-700'}`}>{offering.readiness.status}</p>
+                            <h2 className="font-semibold">Publication readiness</h2>
+                            <p className={`mt-1 text-sm font-semibold ${publishReady.ready ? 'text-emerald-700' : 'text-rose-700'}`}>{publishReady.status}</p>
+                            {!publishReady.ready ? <p className="mt-1 text-sm text-muted-foreground">{publishReady.errors.length} item(s) require attention before this offering can be published.</p> : null}
                         </div>
                         <ul className="grid gap-2">
-                            {offering.readiness.checks.map((check) => (
+                            {publishReady.checks.map((check) => (
                                 <li key={check.field} className="flex gap-2 text-sm">
                                     {check.passes ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />}
-                                    <span>{check.passes ? check.label : check.message}</span>
+                                    <span>
+                                        {check.passes ? check.label : check.message}
+                                        {!check.passes && check.action ? <span className="block text-xs text-muted-foreground">{check.action}</span> : null}
+                                    </span>
                                 </li>
                             ))}
                         </ul>
@@ -98,6 +119,17 @@ export default function Show({ offering, permissions }: { offering: Offering; pe
             </main>
         </AppLayout>
     );
+}
+
+function Badge({ children, tone }: { children: string; tone: 'green' | 'amber' | 'red' | 'zinc' }) {
+    const tones = {
+        green: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+        amber: 'bg-amber-50 text-amber-700 ring-amber-200',
+        red: 'bg-rose-50 text-rose-700 ring-rose-200',
+        zinc: 'bg-zinc-100 text-zinc-700 ring-zinc-200',
+    };
+
+    return <span className={`inline-flex rounded px-2 py-1 text-xs font-semibold ring-1 ${tones[tone]}`}>{children}</span>;
 }
 
 function Item({ label, value }: { label: string; value?: string | null }) {

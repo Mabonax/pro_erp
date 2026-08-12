@@ -32,7 +32,11 @@ export default function Index({ offerings, filters, options, permissions }: { of
         router.get('/citizen-access/admin/offerings', form, { preserveState: true });
     }
 
-    function action(path: string) {
+    function action(path: string, confirmation?: string) {
+        if (confirmation && !window.confirm(confirmation)) {
+            return;
+        }
+
         router.post(path, {}, { preserveScroll: true });
     }
 
@@ -58,7 +62,7 @@ export default function Index({ offerings, filters, options, permissions }: { of
                             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                             <input value={form.search} onChange={(event) => setForm({ ...form, search: event.target.value })} className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm" placeholder="Search" />
                         </label>
-                        <Select value={form.program_id} onChange={(value) => setForm({ ...form, program_id: value })} options={options.programs.map((item) => [item.id, item.title ?? String(item.id)])} placeholder="Programme" />
+                        <Select value={form.program_id} onChange={(value) => setForm({ ...form, program_id: value })} options={options.programs.map((item) => [item.id, item.title ?? String(item.id)])} placeholder="Program" />
                         <Select value={form.project_id} onChange={(value) => setForm({ ...form, project_id: value })} options={options.projects.map((item) => [item.id, item.name ?? String(item.id)])} placeholder="Project" />
                         <Select value={form.service_stream_id} onChange={(value) => setForm({ ...form, service_stream_id: value })} options={options.serviceStreams.map((item) => [item.id, item.name ?? String(item.id)])} placeholder="Service stream" />
                         <Select value={form.project_location_id} onChange={(value) => setForm({ ...form, project_location_id: value })} options={options.projectLocations.map((item) => [item.id, item.province?.name ?? `Location ${item.id}`])} placeholder="Location/province" />
@@ -82,7 +86,7 @@ export default function Index({ offerings, filters, options, permissions }: { of
                             <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                                 <tr>
                                     <th className="px-4 py-3">Offering</th>
-                                    <th className="px-4 py-3">Programme</th>
+                                    <th className="px-4 py-3">Program</th>
                                     <th className="px-4 py-3">Project</th>
                                     <th className="px-4 py-3">Location</th>
                                     <th className="px-4 py-3">Stream</th>
@@ -108,7 +112,7 @@ export default function Index({ offerings, filters, options, permissions }: { of
                                         <td className="px-4 py-3">{offering.project_location?.province?.name ?? offering.province ?? '-'}</td>
                                         <td className="px-4 py-3">{offering.service_stream?.name ?? '-'}</td>
                                         <td className="px-4 py-3">
-                                            <Badge tone={offering.public_slug && offering.public_title ? 'green' : 'zinc'}>{offering.public_slug && offering.public_title ? 'Public' : 'Private'}</Badge>
+                                            <Badge tone={offering.is_published && offering.status === 'published' && offering.is_active && !offering.archived_at ? 'green' : 'zinc'}>{offering.is_published && offering.status === 'published' && offering.is_active && !offering.archived_at ? 'Visible on public website' : 'Not visible'}</Badge>
                                         </td>
                                         <td className="px-4 py-3">
                                             <div className="flex flex-wrap gap-1">
@@ -125,10 +129,10 @@ export default function Index({ offerings, filters, options, permissions }: { of
                                             <div className="flex flex-wrap gap-1">
                                                 <IconLink href={`/citizen-access/admin/offerings/${offering.id}`} label="View" icon={<Eye className="h-4 w-4" />} />
                                                 {permissions.update ? <IconLink href={`/citizen-access/admin/offerings/${offering.id}/edit`} label="Edit" icon={<Pencil className="h-4 w-4" />} /> : null}
-                                                {permissions.publish && !offering.is_published ? <IconButton label="Publish" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/publish`)} icon={<CheckCircle2 className="h-4 w-4" />} /> : null}
-                                                {permissions.publish && offering.is_published ? <IconButton label="Unpublish" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/unpublish`)} icon={<XCircle className="h-4 w-4" />} /> : null}
-                                                {permissions.archive && !offering.archived_at ? <IconButton label="Archive" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/archive`)} icon={<Archive className="h-4 w-4" />} /> : null}
-                                                {permissions.archive && offering.archived_at ? <IconButton label="Restore" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/restore`)} icon={<RotateCcw className="h-4 w-4" />} /> : null}
+                                                {permissions.publish && !offering.is_published ? <IconButton label={offering.publish_readiness?.ready ? 'Publish Offering' : 'Not ready to publish'} disabled={!offering.publish_readiness?.ready} onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/publish`, 'Publish this offering to the public website?')} icon={<CheckCircle2 className="h-4 w-4" />} /> : null}
+                                                {permissions.publish && offering.is_published ? <IconButton label="Unpublish Offering" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/unpublish`, 'Unpublish this offering and remove it from the public website?')} icon={<XCircle className="h-4 w-4" />} /> : null}
+                                                {permissions.archive && !offering.archived_at ? <IconButton label="Archive Offering" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/archive`, 'Archive this offering and remove it from the public website?')} icon={<Archive className="h-4 w-4" />} /> : null}
+                                                {permissions.archive && offering.archived_at ? <IconButton label="Restore Offering" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/restore`, 'Restore this offering as a draft?')} icon={<RotateCcw className="h-4 w-4" />} /> : null}
                                                 {permissions.create ? <IconButton label="Duplicate" onClick={() => action(`/citizen-access/admin/offerings/${offering.id}/duplicate`)} icon={<Copy className="h-4 w-4" />} /> : null}
                                             </div>
                                         </td>
@@ -167,9 +171,9 @@ function Badge({ children, tone }: { children: string; tone: 'green' | 'amber' |
     return <span className={`inline-flex rounded px-2 py-1 text-xs font-semibold ring-1 ${tones[tone]}`}>{children}</span>;
 }
 
-function IconButton({ label, icon, onClick }: { label: string; icon: ReactNode; onClick: () => void }) {
+function IconButton({ label, icon, onClick, disabled = false }: { label: string; icon: ReactNode; onClick: () => void; disabled?: boolean }) {
     return (
-        <button type="button" title={label} aria-label={label} onClick={onClick} className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground">
+        <button type="button" title={label} aria-label={label} disabled={disabled} onClick={onClick} className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">
             {icon}
         </button>
     );

@@ -1,41 +1,118 @@
 # Citizen Access Offerings
 
-An Offering is a managed Citizen Access `Opportunity` that can be shown on the public website only when it passes the server-side publication rules in `Opportunity::publishedPublic()`.
+ERP is the authoritative Citizen Access catalogue.
 
-Programme vs Project vs Offering:
-- Programme is the structured service pathway, such as Citizen Access Program or Entrepreneurship Program.
-- Project is an actual delivery run, such as `Citizen Access 2026/27 - Gauteng`.
-- Offering is the public/admin service configuration that connects a stream, programme, project, project location, requirement template, and safe public copy.
+After the ERP and public website integration code is deployed, administrators do not need a Git commit, pull request, or website deployment to publish ordinary Citizen Access content. Git/deployment is only required when software, UI, API, or schema behavior changes.
 
-Publication works through `OpportunityPublicationReadinessService`. A public offering must be active, lifecycle `published`, not archived, published, have a public slug/title, be linked to a programme, project, matching project location, active service stream, and requirement template with a published version. If a pathway version is selected, it must be active.
+## Publication Model
 
-Administrators manage offerings at:
+An Offering is a managed Citizen Access `Opportunity`. It appears on the public website only when `Opportunity::publishedPublic()` passes.
 
-```bash
-/citizen-access/admin/offerings
+The publication path is:
+
+```text
+Create
+-> configure
+-> satisfy readiness
+-> Publish Offering
+-> GET /api/public/v1/offerings
+-> website grouped catalogue
 ```
 
-Manual workflow:
-- Create an offering as `draft` or `ready`.
-- Use controlled selections for programme, project, location, requirement template, owner, facilitator, stream, institution, and pathway.
-- Review Public Offering Readiness on the detail page.
-- Publish only when the server says the offering is ready.
-- Unpublish to remove it from the public API without losing the record.
-- Archive for normal removal.
-- Restore archived offerings as drafts.
-- Hard deletion is only allowed when there are no historical support cases, intake needs, or application cycles.
+The readiness service checks:
 
-Production catalogue seeding:
+- offering is active
+- public slug is present
+- public title is present
+- publication action sets the published state
+- lifecycle status is Published
+- offering is not archived
+- active service stream is assigned
+- program is assigned
+- project belongs to the selected program
+- project location belongs to the selected project
+- requirement template has a published version
+- selected pathway version is active, when used
+- opening and closing dates are valid
+
+The Publish Offering action is separate from Save. The UI can disable publishing when readiness fails, and the server still rejects bypassed publish requests.
+
+## Public Grouping
+
+The public website does not maintain a second hard-coded list of offerings.
+
+Public support areas come from ERP `ServiceStream` records. The API exposes a safe `support_area` object containing only public grouping fields:
+
+- `slug`
+- `label`
+- `summary`
+- `display_order`
+
+The website groups published offerings dynamically from this API data.
+
+## Cache Behavior
+
+The website fetches offerings server-side with `POA_ERP_PUBLIC_INTAKE_TOKEN`; the token is never exposed to browser JavaScript.
+
+The fresh catalogue cache uses:
+
+```bash
+POA_ERP_OFFERINGS_CACHE_SECONDS=300
+```
+
+The default expected delay after publishing, unpublishing, deactivating, or archiving is up to 5 minutes unless the website cache is cleared sooner. The website also stores a last successful catalogue and can serve it temporarily if ERP is unavailable after the fresh cache expires.
+
+Status meanings:
+
+- `ok`: ERP loaded successfully, including the legitimate case of zero published offerings.
+- `cached`: ERP lookup failed, but the website is serving the last successful catalogue.
+- `unavailable`: ERP lookup failed and no successful catalogue is available.
+- `not_configured`: website ERP URL/token is missing.
+
+## Catalogue Command Safety
+
+Run:
+
+```bash
+php artisan citizen-access:seed-catalogue
+```
+
+The command is idempotent. It creates missing canonical programs, projects, locations, requirement templates, service streams, institutions, offerings, and supported external opportunity cycles.
+
+For existing canonical offerings, the command preserves administrator-owned production content, including:
+
+- publication status
+- active/inactive state
+- archive state
+- public title and descriptions
+- contact references
+- owner and facilitator assignments
+- geography
+- project, location, and requirement-template configuration
+
+The command may update service stream public grouping defaults because those are catalogue-level defaults.
+
+## Production Verification Commands
+
+ERP:
 
 ```bash
 php artisan migrate --force
 php artisan citizen-access:seed-catalogue
-php artisan route:clear
-php artisan config:clear
-php artisan cache:clear
+php artisan route:list --path=citizen-access
+php artisan route:list --path=api/public/v1/offerings
+php artisan test tests/Feature/CitizenAccessWorkflowTest.php
+php artisan test tests/Feature/CitizenAccessOfferingManagementTest.php
+php artisan test tests/Feature/CitizenAccessServicePathwayArchitectureTest.php
+npm.cmd run build
 ```
 
-The catalogue command is idempotent. It creates or updates canonical programmes, projects, project locations, requirement templates, service streams, institutions, offerings, and supported external opportunity cycles. It does not delete beneficiary, intake, case, application, outcome, or other operational records.
+Website:
+
+```bash
+php artisan test tests/Feature/CitizenAssistanceIntegrationTest.php
+npm.cmd run build
+```
 
 Required environment variables:
 
@@ -50,6 +127,7 @@ Website:
 ```bash
 POA_ERP_BASE_URL=
 POA_ERP_PUBLIC_INTAKE_TOKEN=
+POA_ERP_OFFERINGS_CACHE_SECONDS=300
 ```
 
-Do not commit actual secrets.
+Do not commit secrets.

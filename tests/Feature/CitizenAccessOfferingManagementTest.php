@@ -71,6 +71,9 @@ function offeringManagementGraph(): array
     $stream = ServiceStream::query()->create([
         'name' => 'Funding Access '.Str::upper(Str::random(4)),
         'slug' => 'funding-access-'.Str::lower(Str::random(4)),
+        'public_label' => 'Student Funding',
+        'public_summary' => 'NSFAS, bursaries and funding application support.',
+        'public_display_order' => 2,
         'is_active' => true,
     ]);
     $template = RequirementTemplate::query()->create([
@@ -139,6 +142,50 @@ it('seeds the production catalogue idempotently without duplicating canonical re
         ->and(Opportunity::query()->publishedPublic()->count())->toBe(26);
 });
 
+it('preserves administrator-managed production offering fields when reseeding the catalogue', function () {
+    app(CitizenAccessCatalogueService::class)->seed();
+
+    $offering = Opportunity::query()->where('public_slug', 'ca-nsfas')->firstOrFail();
+    $replacement = offeringManagementGraph();
+    $offering->update([
+        'service_stream_id' => $replacement['stream']->id,
+        'program_id' => $replacement['program']->id,
+        'project_id' => $replacement['project']->id,
+        'project_location_id' => $replacement['location']->id,
+        'requirement_template_id' => $replacement['template']->id,
+        'owner_staff_id' => $replacement['manager']->id,
+        'facilitator_id' => $replacement['facilitator']->id,
+        'status' => 'unpublished',
+        'is_active' => false,
+        'is_published' => false,
+        'published_at' => null,
+        'archived_at' => now(),
+        'public_title' => 'Administrator NSFAS Label',
+        'public_summary' => 'Administrator-edited description.',
+        'contact_reference' => 'Admin contact desk',
+        'province' => 'Western Cape',
+    ]);
+
+    app(CitizenAccessCatalogueService::class)->seed();
+
+    $offering->refresh();
+    expect($offering->service_stream_id)->toBe($replacement['stream']->id)
+        ->and($offering->program_id)->toBe($replacement['program']->id)
+        ->and($offering->project_id)->toBe($replacement['project']->id)
+        ->and($offering->project_location_id)->toBe($replacement['location']->id)
+        ->and($offering->requirement_template_id)->toBe($replacement['template']->id)
+        ->and($offering->owner_staff_id)->toBe($replacement['manager']->id)
+        ->and($offering->facilitator_id)->toBe($replacement['facilitator']->id)
+        ->and($offering->status)->toBe('unpublished')
+        ->and($offering->is_active)->toBeFalse()
+        ->and($offering->is_published)->toBeFalse()
+        ->and($offering->archived_at)->not->toBeNull()
+        ->and($offering->public_title)->toBe('Administrator NSFAS Label')
+        ->and($offering->public_summary)->toBe('Administrator-edited description.')
+        ->and($offering->contact_reference)->toBe('Admin contact desk')
+        ->and($offering->province)->toBe('Western Cape');
+});
+
 it('does not delete operational offering records when seeding the catalogue', function () {
     $payload = offeringPayload(['public_slug' => 'operator-created-offering', 'name' => 'Operator Created Offering']);
     $operational = Opportunity::query()->create($payload + ['is_published' => false, 'published_at' => null]);
@@ -190,6 +237,15 @@ it('explains missing readiness relationships and rejects incomplete publishing',
     $this->actingAs($manager)
         ->post("/citizen-access/admin/offerings/{$offering->id}/publish")
         ->assertSessionHasErrors(['project_location_id']);
+
+    $this->actingAs($manager)
+        ->get("/citizen-access/admin/offerings/{$offering->id}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('CitizenAccess/Admin/Offerings/Show')
+            ->where('offering.publish_readiness.ready', false)
+            ->where('offering.publish_readiness.errors.0.field', 'project_location_id')
+            ->where('offering.publish_readiness.checks.9.action', 'Relationships section'));
 });
 
 it('publishes a ready offering and exposes only safe public API fields', function () {
@@ -209,11 +265,12 @@ it('publishes a ready offering and exposes only safe public API fields', functio
         ->getJson('/api/public/v1/offerings')
         ->assertOk()
         ->assertJsonFragment(['slug' => 'ca-ready-offering'])
+        ->assertJsonPath('data.0.support_area.label', 'Student Funding')
         ->assertJsonMissing(['notes' => 'Internal notes.'])
         ->assertJsonMissing(['owner_staff_id' => $payload['owner_staff_id']]);
 });
 
-it('removes unpublished and archived offerings from the public API', function () {
+it('removes unpublished deactivated and archived offerings from the public API', function () {
     config(['services.citizen_access.public_intake_token' => 'secret-token']);
     $manager = grantDomainAccess(User::factory()->create(), 'citizen-access');
     $payload = offeringPayload(['status' => 'published', 'public_slug' => 'ca-public-toggle']);
@@ -226,11 +283,22 @@ it('removes unpublished and archived offerings from the public API', function ()
         ->assertJsonMissing(['slug' => 'ca-public-toggle']);
 
     $offering->update(['is_published' => true, 'published_at' => now(), 'status' => 'published']);
+    $this->actingAs($manager)->post("/citizen-access/admin/offerings/{$offering->id}/deactivate")->assertRedirect();
+
+    $this->withToken('secret-token')
+        ->getJson('/api/public/v1/offerings')
+        ->assertJsonMissing(['slug' => 'ca-public-toggle']);
+
+    $offering->update(['is_active' => true, 'is_published' => true, 'published_at' => now(), 'status' => 'published']);
     $this->actingAs($manager)->post("/citizen-access/admin/offerings/{$offering->id}/archive")->assertRedirect();
 
     $this->withToken('secret-token')
         ->getJson('/api/public/v1/offerings')
         ->assertJsonMissing(['slug' => 'ca-public-toggle']);
+
+    $this->actingAs($manager)->post("/citizen-access/admin/offerings/{$offering->id}/restore")->assertRedirect();
+    expect($offering->refresh()->status)->toBe('draft')
+        ->and($offering->is_published)->toBeFalse();
 });
 
 it('clones an offering as a draft and blocks destructive deletion with historical cases', function () {

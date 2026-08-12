@@ -12,7 +12,7 @@ class OpportunityPublicationReadiness
 
     public function statusLabel(): string
     {
-        return $this->ready ? 'READY FOR PUBLIC WEBSITE' : 'CANNOT PUBLISH';
+        return $this->ready ? 'Ready to publish' : 'Not ready to publish';
     }
 
     public function validationMessages(): array

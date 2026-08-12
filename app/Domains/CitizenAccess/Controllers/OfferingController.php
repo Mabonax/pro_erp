@@ -170,21 +170,26 @@ class OfferingController extends Controller
 
     public function publish(Request $request, Opportunity $offering): RedirectResponse
     {
-        $offering->forceFill([
-            'is_active' => true,
+        $candidate = $offering->replicate();
+        $candidate->forceFill([
             'is_published' => true,
             'status' => 'published',
             'published_at' => $offering->published_at ?? now(),
             'archived_at' => null,
         ]);
 
-        $readiness = $this->readiness->evaluate($offering);
+        $readiness = $this->readiness->evaluate($candidate);
 
         if (! $readiness->ready) {
             throw ValidationException::withMessages($readiness->validationMessages());
         }
 
-        $offering->save();
+        $offering->update([
+            'is_published' => true,
+            'status' => 'published',
+            'published_at' => $offering->published_at ?? now(),
+            'archived_at' => null,
+        ]);
         $this->audit->record('opportunity.published', $offering, $request->user(), ['readiness' => $readiness->toArray()]);
 
         return back()->with('success', 'Offering published.');
@@ -385,12 +390,12 @@ class OfferingController extends Controller
     private function options(): array
     {
         return [
-            'serviceStreams' => ServiceStream::query()->select('id', 'name', 'slug', 'is_active')->orderBy('sort_order')->orderBy('name')->get(),
+            'serviceStreams' => ServiceStream::query()->select('id', 'name', 'slug', 'public_label', 'public_summary', 'is_active', 'sort_order', 'public_display_order')->orderBy('public_display_order')->orderBy('sort_order')->orderBy('name')->get(),
             'institutions' => Institution::query()->select('id', 'name', 'institution_type')->orderBy('name')->get(),
             'programs' => Program::query()->select('id', 'title', 'code', 'status')->orderBy('title')->get(),
             'projects' => Project::query()->select('id', 'program_id', 'name', 'project_code', 'status')->orderBy('name')->get(),
             'projectLocations' => ProjectLocation::query()->with(['project:id,name', 'province:id,name'])->select('id', 'project_id', 'province_id', 'training_venue_address')->orderBy('id')->get(),
-            'templates' => RequirementTemplate::query()->with('latestPublishedVersion:id,template_id,version_number,status')->select('id', 'service_stream_id', 'name', 'status')->orderBy('name')->get(),
+            'templates' => RequirementTemplate::query()->with('versions:id,template_id,version_number,status')->select('id', 'service_stream_id', 'name', 'status')->orderBy('name')->get(),
             'servicePathways' => ServicePathway::query()->select('id', 'name', 'slug', 'recipient_type', 'status')->orderBy('name')->get(),
             'servicePathwayVersions' => ServicePathwayVersion::query()->with('pathway:id,name')->select('id', 'service_pathway_id', 'label', 'status')->orderByDesc('id')->get(),
             'staffOwners' => StaffMember::query()->select('id', 'first_name', 'last_name', 'email', 'status')->orderBy('first_name')->orderBy('last_name')->get(),
@@ -402,6 +407,12 @@ class OfferingController extends Controller
     {
         $data = $opportunity->toArray();
         $data['readiness'] = $this->readiness->evaluate($opportunity)->toArray();
+        $data['publish_readiness'] = $this->readiness->evaluateDraft(array_merge($opportunity->toArray(), [
+            'is_published' => true,
+            'status' => 'published',
+            'published_at' => $opportunity->published_at ?? now(),
+            'archived_at' => null,
+        ]), $opportunity)->toArray();
         $data['historical_references'] = $this->historicalReferences($opportunity);
 
         if ($includeAudit) {
@@ -450,7 +461,7 @@ class OfferingController extends Controller
     private function offeringRelations(): array
     {
         return [
-            'serviceStream:id,name,slug,is_active',
+            'serviceStream:id,name,slug,public_label,public_summary,is_active,sort_order,public_display_order',
             'institution:id,name,institution_type',
             'program:id,title,code,status',
             'project:id,name,project_code,program_id,status',

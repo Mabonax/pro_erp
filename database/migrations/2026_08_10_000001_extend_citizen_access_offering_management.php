@@ -73,6 +73,7 @@ return new class extends Migration
             ->where('is_active', true)
             ->whereNull('archived_at')
             ->update(['status' => 'ready']);
+
     }
 
     public function down(): void
@@ -85,6 +86,14 @@ return new class extends Migration
                 if (Schema::hasColumn('citizen_access_opportunities', $column)) {
                     $table->dropForeign($foreign);
                 }
+            }
+
+            if (Schema::hasColumn('citizen_access_opportunities', 'status')) {
+                $table->dropIndex('ca_opp_status_idx');
+            }
+
+            if (Schema::hasColumn('citizen_access_opportunities', 'archived_at')) {
+                $table->dropIndex('ca_opp_archived_at_idx');
             }
 
             $columns = [

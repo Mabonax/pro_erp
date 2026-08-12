@@ -23,7 +23,7 @@ export type Option = {
 export type Readiness = {
     ready: boolean;
     status: string;
-    checks: Array<{ field: string; label: string; passes: boolean; message: string }>;
+    checks: Array<{ field: string; label: string; passes: boolean; message: string; action?: string }>;
     errors: Array<{ field: string; message: string }>;
 };
 
@@ -74,6 +74,7 @@ export type Offering = {
     owner_staff?: Option | null;
     facilitator?: Option | null;
     readiness: Readiness;
+    publish_readiness: Readiness;
     historical_references: string[];
     audit_events?: Array<{ id: number; event_type: string; properties: Record<string, unknown>; created_at: string }>;
 };
