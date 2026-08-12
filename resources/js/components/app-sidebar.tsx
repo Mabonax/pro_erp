@@ -1,5 +1,24 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, BookOpen, Bot, Briefcase, BriefcaseBusiness, Building2, CalendarRange, ClipboardCheck, Download, FolderTree, LayoutGrid, LifeBuoy, MapPinned, Megaphone, Package, ReceiptText, ShieldCheck, UserCircle } from 'lucide-react';
+import {
+    Bell,
+    BookOpen,
+    Bot,
+    Briefcase,
+    BriefcaseBusiness,
+    Building2,
+    CalendarRange,
+    ClipboardCheck,
+    Download,
+    FolderTree,
+    LayoutGrid,
+    LifeBuoy,
+    MapPinned,
+    Megaphone,
+    Package,
+    ReceiptText,
+    ShieldCheck,
+    UserCircle,
+} from 'lucide-react';
 
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -28,49 +47,75 @@ const mainNavItems: NavItem[] = [
         title: 'Beneficiaries',
         href: '/beneficiaries',
         icon: UserCircle,
-        requiredPermissions: ['domain.beneficiaries.view', 'domain.beneficiaries.manage'],
+        requiredPermissions: [
+            'domain.beneficiaries.view',
+            'domain.beneficiaries.manage',
+        ],
     },
     {
         title: 'Citizen Access',
         href: '/citizen-access/intakes',
         icon: LifeBuoy,
-        requiredPermissions: ['domain.citizen-access.view', 'domain.citizen-access.manage'],
+        requiredPermissions: [
+            'domain.citizen-access.view',
+            'domain.citizen-access.manage',
+        ],
     },
     {
         title: 'Stakeholders',
         href: '/stakeholders',
         icon: UserCircle,
-        requiredPermissions: ['domain.stakeholders.view', 'domain.stakeholders.manage'],
+        requiredPermissions: [
+            'domain.stakeholders.view',
+            'domain.stakeholders.manage',
+        ],
     },
     {
         title: 'Organization',
         href: '/organization',
         icon: Building2,
-        requiredPermissions: ['domain.organization.view', 'domain.organization.manage'],
+        requiredPermissions: [
+            'domain.organization.view',
+            'domain.organization.manage',
+        ],
     },
     {
         title: 'Facilitators',
         href: '/facilitators',
         icon: UserCircle,
-        requiredPermissions: ['domain.facilitators.view', 'domain.facilitators.manage'],
+        requiredPermissions: [
+            'domain.facilitators.view',
+            'domain.facilitators.manage',
+        ],
     },
     {
         title: 'Human Resources',
         href: '/human-resources',
         icon: Building2,
-        requiredPermissions: ['domain.human-resources.view', 'domain.human-resources.manage'],
+        requiredPermissions: [
+            'domain.human-resources.view',
+            'domain.human-resources.manage',
+        ],
     },
     {
         title: 'Human Capital',
         href: '/human-capital/dashboard',
         icon: MapPinned,
-        requiredPermissions: ['domain.human-capital.view', 'domain.human-capital.manage', 'domain.members.view', 'domain.members.manage'],
+        requiredPermissions: [
+            'domain.human-capital.view',
+            'domain.human-capital.manage',
+            'domain.members.view',
+            'domain.members.manage',
+        ],
     },
     {
         title: 'Intelligence',
         href: '/intelligence',
         icon: Bot,
-        requiredPermissions: ['domain.intelligence.view', 'domain.intelligence.manage'],
+        requiredPermissions: [
+            'domain.intelligence.view',
+            'domain.intelligence.manage',
+        ],
     },
     {
         title: 'Assets',
@@ -94,13 +139,22 @@ const mainNavItems: NavItem[] = [
         title: 'Service Delivery',
         href: '/service-delivery',
         icon: ClipboardCheck,
-        requiredPermissions: ['domain.service-delivery.view', 'domain.service-delivery.manage', 'domain.programs.view', 'domain.projects.view', 'domain.beneficiaries.view'],
+        requiredPermissions: [
+            'domain.service-delivery.view',
+            'domain.service-delivery.manage',
+            'domain.programs.view',
+            'domain.projects.view',
+            'domain.beneficiaries.view',
+        ],
     },
     {
         title: 'Business Development',
         href: '/business-development',
         icon: BriefcaseBusiness,
-        requiredPermissions: ['domain.business-development.view', 'domain.business-development.manage'],
+        requiredPermissions: [
+            'domain.business-development.view',
+            'domain.business-development.manage',
+        ],
     },
     {
         title: 'Events',
@@ -112,19 +166,29 @@ const mainNavItems: NavItem[] = [
         title: 'Task Management',
         href: '/task-management',
         icon: LifeBuoy,
-        requiredPermissions: ['domain.task-management.view', 'domain.task-management.manage'],
+        requiredPermissions: [
+            'domain.task-management.view',
+            'domain.task-management.manage',
+        ],
     },
     {
         title: 'Marketing',
         href: '/marketing',
         icon: Megaphone,
-        requiredPermissions: ['domain.marketing.view', 'domain.marketing.manage'],
+        requiredPermissions: [
+            'domain.marketing.view',
+            'domain.marketing.manage',
+        ],
     },
     {
         title: 'Finance',
         href: '/finance/travel-claims',
         icon: ReceiptText,
-        requiredPermissions: ['domain.finance.view', 'domain.finance.manage', 'travel-claims.submit'],
+        requiredPermissions: [
+            'domain.finance.view',
+            'domain.finance.manage',
+            'travel-claims.submit',
+        ],
     },
     {
         title: 'Notifications',
@@ -154,7 +218,10 @@ const mainNavItems: NavItem[] = [
         title: 'Official Vault',
         href: '/organization/documents',
         icon: Download,
-        requiredPermissions: ['domain.organization.view', 'domain.organization.manage'],
+        requiredPermissions: [
+            'domain.organization.view',
+            'domain.organization.manage',
+        ],
     },
     {
         title: 'Facilitator Activities',
@@ -173,16 +240,24 @@ const mainNavItems: NavItem[] = [
 export function AppSidebar() {
     const { auth, notifications } = usePage<SharedData>().props;
     const user = auth?.user;
-    const isAdminUser = hasAnyRole(user, ['super-admin', 'super admin', 'admin']);
+    const isAdminUser = hasAnyRole(user, [
+        'super-admin',
+        'super admin',
+        'admin',
+    ]);
     const isBusinessDevelopmentUser = hasAnyPermission(user, [
         'domain.business-development.view',
         'domain.business-development.manage',
     ]);
-    const restrictBeneficiariesForBds = isBusinessDevelopmentUser && !isAdminUser;
+    const restrictBeneficiariesForBds =
+        isBusinessDevelopmentUser && !isAdminUser;
 
     const itemsWithBadges = mainNavItems.map((item) => ({
         ...item,
-        badgeCount: item.href === '/notifications' ? (notifications?.unread_count ?? 0) : undefined,
+        badgeCount:
+            item.href === '/notifications'
+                ? (notifications?.unread_count ?? 0)
+                : undefined,
     }));
 
     const visibleMainNavItems = itemsWithBadges.filter(
@@ -194,7 +269,7 @@ export function AppSidebar() {
 
     return (
         <Sidebar collapsible="icon" variant="inset">
-            <SidebarHeader className="gap-4 border-b border-[#ECECEC] px-3 py-3">
+            <SidebarHeader className="gap-5 border-b border-[#F1F1F1] bg-white px-4 py-5">
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
@@ -204,21 +279,25 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                     </SidebarMenuItem>
                 </SidebarMenu>
-                <div className="border border-[#ECECEC] bg-[#F7F7F7] p-4 text-sm leading-6 text-[#4B5563] group-data-[collapsible=icon]:hidden">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#C8102E]">
+                <div className="relative overflow-hidden rounded-lg bg-[#C8102E] p-5 text-sm leading-7 text-white shadow-[0_14px_30px_rgba(200,16,46,0.22)] group-data-[collapsible=icon]:hidden">
+                    <p className="text-[11px] font-semibold tracking-[0.28em] text-white uppercase">
                         Internal ERP
                     </p>
-                    <p className="mt-2">
-                        Delivery operations, governance workflows, and institutional records in one workspace.
+                    <p className="relative z-10 mt-3">
+                        Delivery operations, governance workflows, and
+                        institutional records in one workspace.
                     </p>
+                    <div className="absolute right-0 -bottom-2 size-16 rounded-full border-2 border-white/15" />
+                    <div className="absolute right-9 bottom-5 size-5 rounded-full border-2 border-white/15" />
+                    <div className="absolute right-5 bottom-3 size-8 rounded-full border-2 border-white/15" />
                 </div>
             </SidebarHeader>
 
-            <SidebarContent className="px-1 py-3">
+            <SidebarContent className="bg-white px-1 py-5">
                 <NavMain items={visibleMainNavItems} />
             </SidebarContent>
 
-            <SidebarFooter className="border-t border-[#ECECEC] px-3 py-3">
+            <SidebarFooter className="border-t border-[#F1F1F1] bg-white px-4 py-4">
                 <NavUser />
             </SidebarFooter>
         </Sidebar>

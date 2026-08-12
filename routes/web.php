@@ -563,6 +563,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware('auth')
         ->whereNumber('file')
         ->name('organization.document-library.files.download');
+    Route::get('organization/document-library/files/{file}/preview', [DocumentLibraryController::class, 'previewFile'])
+        ->middleware('auth')
+        ->whereNumber('file')
+        ->name('organization.document-library.files.preview');
     Route::post('organization/document-library/files/{file}/publish-to-vault', [DocumentLibraryController::class, 'publishToVault'])
         ->middleware('auth')
         ->whereNumber('file')

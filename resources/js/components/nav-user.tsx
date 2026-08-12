@@ -29,7 +29,7 @@ export function NavUser() {
                 <SidebarMenuItem>
                     <SidebarMenuButton
                         asChild
-                        className="h-11 rounded-none border border-[#ECECEC] bg-[#F7F7F7] px-3 text-[#111111] hover:bg-[#111111] hover:text-white"
+                        className="h-11 rounded-md border border-[#ECECEC] bg-white px-3 text-[#111111] hover:bg-[#FDECEE] hover:text-[#C8102E]"
                     >
                         <Link href={login()} prefetch>
                             <UserInfo user={null} />
@@ -48,7 +48,7 @@ export function NavUser() {
                     <DropdownMenuTrigger asChild>
                         <SidebarMenuButton
                             size="lg"
-                            className="group h-auto rounded-none border border-[#ECECEC] bg-[#F7F7F7] px-3 py-3 text-[#111111] data-[state=open]:bg-[#111111] data-[state=open]:text-white"
+                            className="group h-auto rounded-md border border-[#ECECEC] bg-white px-3 py-3 text-[#111111] shadow-sm data-[state=open]:bg-[#FDECEE] data-[state=open]:text-[#C8102E]"
                             data-test="sidebar-menu-button"
                         >
                             <UserInfo user={auth.user} />

@@ -22,6 +22,7 @@ class DocumentFileResource extends JsonResource
             'uploaded_by_name' => $this->uploader?->name,
             'created_at' => $this->created_at?->toDateTimeString(),
             'download_url' => route('organization.document-library.files.download', $this->resource),
+            'preview_url' => route('organization.document-library.files.preview', $this->resource),
             'can' => [
                 'download' => $user?->can('view', $this->resource) ?? false,
                 'manage' => $user?->can('update', $this->resource) ?? false,

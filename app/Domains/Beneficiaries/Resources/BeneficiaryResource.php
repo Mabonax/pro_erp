@@ -135,8 +135,13 @@ class BeneficiaryResource extends JsonResource
                         'document_file_id' => $item->document_file_id,
                         'document_title' => $item->documentFile?->title,
                         'document_original_name' => $item->documentFile?->original_name,
+                        'document_mime_type' => $item->documentFile?->mime_type,
+                        'document_size_bytes' => $item->documentFile?->size_bytes,
                         'download_url' => $item->documentFile
                             ? route('organization.document-library.files.download', $item->documentFile)
+                            : null,
+                        'preview_url' => $item->documentFile
+                            ? route('organization.document-library.files.preview', $item->documentFile)
                             : null,
                         'evidence_type' => $item->evidence_type,
                         'issuer' => $item->issuer,

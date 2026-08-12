@@ -316,6 +316,20 @@ test('beneficiary evidence upload stores a document library file and evidence it
         'verification_status' => 'verified',
         'issuer' => 'Home Affairs',
     ]);
+
+    $this->actingAs($user)
+        ->get("/beneficiaries/{$fixture['beneficiary']->id}")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('beneficiary.evidence_items.0.document_mime_type', 'application/pdf')
+            ->where('beneficiary.evidence_items.0.preview_url', route('organization.document-library.files.preview', $file))
+            ->where('beneficiary.evidence_items.0.download_url', route('organization.document-library.files.download', $file))
+        );
+
+    $this->actingAs($user)
+        ->get(route('organization.document-library.files.preview', $file))
+        ->assertOk()
+        ->assertHeader('content-type', 'application/pdf');
 });
 
 test('deleting a beneficiary from the file page returns to the beneficiary index', function () {

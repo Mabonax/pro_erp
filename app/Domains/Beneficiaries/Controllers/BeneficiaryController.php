@@ -129,7 +129,7 @@ class BeneficiaryController extends Controller
     {
         $model = $this->service->getById($beneficiary);
         $model->loadMissing([
-            'evidenceItems' => fn ($query) => $query->with('documentFile:id,title,original_name')->latest()->limit(10),
+            'evidenceItems' => fn ($query) => $query->with('documentFile:id,title,original_name,mime_type,size_bytes')->latest()->limit(10),
             'milestoneAssessments' => fn ($query) => $query
                 ->with(['milestone:id,project_id,title', 'milestone.project:id,name'])
                 ->latest()

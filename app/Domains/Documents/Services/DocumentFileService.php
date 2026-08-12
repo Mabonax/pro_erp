@@ -124,4 +124,16 @@ class DocumentFileService
 
         return Storage::disk($file->disk)->download($file->file_path, $file->original_name);
     }
+
+    public function previewFile(DocumentFile $file, User $actor)
+    {
+        if (! $this->accessService->canViewFile($actor, $file)) {
+            abort(403);
+        }
+
+        return response()->file(Storage::disk($file->disk)->path($file->file_path), [
+            'Content-Type' => $file->mime_type ?: 'application/octet-stream',
+            'Content-Disposition' => 'inline; filename="'.$file->original_name.'"',
+        ]);
+    }
 }
