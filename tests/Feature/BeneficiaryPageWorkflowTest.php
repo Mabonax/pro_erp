@@ -1,17 +1,27 @@
 <?php
 
 use App\Domains\Beneficiaries\Models\Beneficiary;
+use App\Domains\CitizenAccess\Models\EvidenceItem;
+use App\Domains\CitizenAccess\Models\ServiceStream;
+use App\Domains\CitizenAccess\Models\SupportCase;
+use App\Domains\Documents\Models\DocumentFile;
+use App\Domains\Documents\Models\DocumentFolder;
 use App\Domains\Facilitators\Models\Facilitator;
 use App\Domains\Programs\Models\Program;
 use App\Domains\Projects\Models\Project;
 use App\Domains\Projects\Models\ProjectEnrollment;
 use App\Domains\Projects\Models\ProjectLocation;
+use App\Domains\Projects\Models\ProjectMilestone;
+use App\Domains\Projects\Models\ProjectMilestoneAssessment;
+use App\Domains\Projects\Models\ProgramMilestoneTemplate;
 use App\Domains\Staff\Models\StaffDepartment;
 use App\Domains\Staff\Models\StaffMember;
 use App\Models\NextOfKin;
 use App\Models\Provinces;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -171,6 +181,155 @@ test('authorized user can open the beneficiary edit page', function () {
             ->where('beneficiary.id', $fixture['beneficiary']->id)
             ->where('beneficiary.full_name', 'Lebo Mokoena')
         );
+});
+
+test('beneficiary file exposes the cross-domain service journey', function () {
+    $user = User::factory()->create();
+    grantDomainAccess($user, 'beneficiaries');
+    $fixture = makeBeneficiaryPageWorkflowFixture();
+
+    $stream = ServiceStream::query()->create([
+        'name' => 'NSFAS Applications',
+        'slug' => 'nsfas-applications-'.Str::lower(Str::random(5)),
+    ]);
+
+    SupportCase::query()->create([
+        'case_reference' => 'CAS-260803-001',
+        'beneficiary_id' => $fixture['beneficiary']->id,
+        'program_id' => $fixture['project']->program_id,
+        'project_id' => $fixture['project']->id,
+        'project_location_id' => $fixture['location']->id,
+        'service_stream_id' => $stream->id,
+        'stage' => 'ready_to_apply',
+        'readiness_state' => 'ready_for_application_support',
+        'readiness_percentage' => 90,
+    ]);
+
+    EvidenceItem::query()->create([
+        'beneficiary_id' => $fixture['beneficiary']->id,
+        'evidence_type' => 'identity_document',
+        'verification_status' => 'verified',
+    ]);
+
+    $template = ProgramMilestoneTemplate::query()->create([
+        'program_id' => $fixture['program']->id,
+        'title' => 'Application submitted',
+        'sort_order' => 1,
+    ]);
+
+    $milestone = ProjectMilestone::query()->create([
+        'project_id' => $fixture['project']->id,
+        'program_milestone_template_id' => $template->id,
+        'title' => 'Application submitted',
+        'sort_order' => 1,
+    ]);
+
+    ProjectMilestoneAssessment::query()->create([
+        'project_milestone_id' => $milestone->id,
+        'beneficiary_id' => $fixture['beneficiary']->id,
+        'project_location_id' => $fixture['location']->id,
+        'status' => 'completed',
+        'score' => 80,
+        'assessed_at' => now(),
+    ]);
+
+    $this->actingAs($user)
+        ->get("/beneficiaries/{$fixture['beneficiary']->id}")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Beneficiaries/Show')
+            ->where('beneficiary.support_cases.0.case_reference', 'CAS-260803-001')
+            ->where('beneficiary.support_cases.0.service_stream', 'NSFAS Applications')
+            ->where('beneficiary.evidence_items.0.evidence_type', 'identity_document')
+            ->where('beneficiary.milestone_assessments.0.milestone', 'Application submitted')
+            ->where('beneficiary.service_journey_summary.open_support_case_count', 1)
+            ->where('beneficiary.service_journey_summary.completed_milestone_assessment_count', 1)
+        );
+});
+
+test('creating a citizen access case from a beneficiary preserves placement context', function () {
+    $user = User::factory()->create();
+    grantDomainAccess($user, 'citizen-access');
+    $fixture = makeBeneficiaryPageWorkflowFixture();
+    $stream = ServiceStream::query()->create([
+        'name' => 'University Applications',
+        'slug' => 'university-applications-'.Str::lower(Str::random(5)),
+    ]);
+
+    $this->actingAs($user)
+        ->get("/citizen-access/cases/create?beneficiary_id={$fixture['beneficiary']->id}")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('CitizenAccess/Cases/Create')
+            ->where('selectedBeneficiaryId', $fixture['beneficiary']->id)
+            ->where('beneficiaries.0.project_id', $fixture['project']->id)
+            ->where('beneficiaries.0.project_location_id', $fixture['location']->id)
+        );
+
+    $this->actingAs($user)
+        ->post('/citizen-access/cases', [
+            'beneficiary_id' => $fixture['beneficiary']->id,
+            'service_stream_id' => $stream->id,
+        ])
+        ->assertRedirect();
+
+    $this->assertDatabaseHas('citizen_access_support_cases', [
+        'beneficiary_id' => $fixture['beneficiary']->id,
+        'program_id' => $fixture['project']->program_id,
+        'project_id' => $fixture['project']->id,
+        'project_location_id' => $fixture['location']->id,
+    ]);
+});
+
+test('beneficiary evidence upload stores a document library file and evidence item', function () {
+    Storage::fake('document_library');
+
+    $user = User::factory()->create();
+    grantDomainAccess($user, 'beneficiaries');
+    $fixture = makeBeneficiaryPageWorkflowFixture();
+
+    $this->actingAs($user)
+        ->post("/beneficiaries/{$fixture['beneficiary']->id}/evidence", [
+            'evidence_type' => 'identity_document',
+            'title' => 'Certified ID',
+            'issuer' => 'Home Affairs',
+            'issue_date' => now()->subYear()->toDateString(),
+            'expiry_date' => now()->addYear()->toDateString(),
+            'verification_status' => 'verified',
+            'file' => UploadedFile::fake()->create('id.pdf', 16, 'application/pdf'),
+        ])
+        ->assertRedirect("/beneficiaries/{$fixture['beneficiary']->id}");
+
+    $folder = DocumentFolder::query()
+        ->where('owner_type', Beneficiary::class)
+        ->where('owner_id', $fixture['beneficiary']->id)
+        ->where('folder_type', DocumentFolder::TYPE_STANDARD)
+        ->firstOrFail();
+    $file = DocumentFile::query()->where('folder_id', $folder->id)->firstOrFail();
+
+    Storage::disk('document_library')->assertExists($file->file_path);
+
+    $this->assertDatabaseHas('citizen_access_evidence_items', [
+        'beneficiary_id' => $fixture['beneficiary']->id,
+        'document_file_id' => $file->id,
+        'evidence_type' => 'identity_document',
+        'verification_status' => 'verified',
+        'issuer' => 'Home Affairs',
+    ]);
+
+    $this->actingAs($user)
+        ->get("/beneficiaries/{$fixture['beneficiary']->id}")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('beneficiary.evidence_items.0.document_mime_type', 'application/pdf')
+            ->where('beneficiary.evidence_items.0.preview_url', route('organization.document-library.files.preview', $file))
+            ->where('beneficiary.evidence_items.0.download_url', route('organization.document-library.files.download', $file))
+        );
+
+    $this->actingAs($user)
+        ->get(route('organization.document-library.files.preview', $file))
+        ->assertOk()
+        ->assertHeader('content-type', 'application/pdf');
 });
 
 test('deleting a beneficiary from the file page returns to the beneficiary index', function () {

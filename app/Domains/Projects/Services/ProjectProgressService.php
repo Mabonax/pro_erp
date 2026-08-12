@@ -5,6 +5,8 @@ namespace App\Domains\Projects\Services;
 use App\Domains\Projects\Models\Project;
 use App\Domains\Projects\Models\ProjectEnrollment;
 use App\Domains\Projects\Models\ProjectLocation;
+use App\Domains\CitizenAccess\Models\AssessmentItem;
+use App\Domains\CitizenAccess\Models\SupportCase;
 use Illuminate\Support\Collection;
 
 class ProjectProgressService
@@ -15,7 +17,10 @@ class ProjectProgressService
             'projectManager',
             'locations.facilitator',
             'locations.province',
-            'locations.enrollments.beneficiary',
+            'locations.enrollments.beneficiary.evidenceItems',
+            'locations.enrollments.beneficiary.supportCases.assessmentItems',
+            'locations.enrollments.beneficiary.supportCases.readinessActions.workTask',
+            'locations.enrollments.beneficiary.milestoneAssessments',
             'locations.milestoneAssessments',
             'locations.attendanceRegisters.entries',
             'milestones',
@@ -72,6 +77,7 @@ class ProjectProgressService
                 'blockers' => $blockers,
             ],
             'locations' => $locationSummaries->all(),
+            'journey' => $this->summarizeBeneficiaryJourney($project, $locationSummaries),
         ];
     }
 
@@ -199,6 +205,100 @@ class ProjectProgressService
             'beneficiary_completion_rate' => $beneficiaryCompletionRate,
             'is_blocked' => $blockers !== [],
             'blockers' => $blockers,
+        ];
+    }
+
+    protected function summarizeBeneficiaryJourney(Project $project, Collection $locationSummaries): array
+    {
+        $locationJourney = $project->locations
+            ->map(function (ProjectLocation $location) use ($project, $locationSummaries) {
+                $locationProgress = $locationSummaries->firstWhere('id', $location->id) ?? [];
+                $beneficiaryRows = $location->enrollments
+                    ->filter(fn (ProjectEnrollment $enrollment) => $enrollment->beneficiary !== null)
+                    ->map(fn (ProjectEnrollment $enrollment) => $this->summarizeBeneficiaryJourneyRow($project, $location, $enrollment))
+                    ->sortByDesc(fn (array $row) => $row['risk_score'])
+                    ->values();
+
+                return [
+                    'location_id' => $location->id,
+                    'location' => $locationProgress['location'] ?? $location->province?->name,
+                    'active_beneficiaries' => $locationProgress['active_beneficiaries'] ?? 0,
+                    'attendance_rate' => $locationProgress['attendance_rate'] ?? 0,
+                    'open_support_cases' => (int) $beneficiaryRows->sum('open_support_cases'),
+                    'evidence_gaps' => (int) $beneficiaryRows->sum('evidence_gap_count'),
+                    'open_readiness_actions' => (int) $beneficiaryRows->sum('open_readiness_actions'),
+                    'completed_milestone_assessments' => (int) $beneficiaryRows->sum('completed_milestone_assessments'),
+                    'at_risk_beneficiaries' => $beneficiaryRows
+                        ->filter(fn (array $row) => $row['risk_score'] > 0)
+                        ->take(10)
+                        ->values()
+                        ->all(),
+                ];
+            })
+            ->values();
+
+        return [
+            'summary' => [
+                'open_support_cases' => (int) $locationJourney->sum('open_support_cases'),
+                'evidence_gaps' => (int) $locationJourney->sum('evidence_gaps'),
+                'open_readiness_actions' => (int) $locationJourney->sum('open_readiness_actions'),
+                'locations_with_risks' => $locationJourney
+                    ->filter(fn (array $location) => $location['evidence_gaps'] > 0 || $location['open_readiness_actions'] > 0 || count($location['at_risk_beneficiaries']) > 0)
+                    ->count(),
+            ],
+            'locations' => $locationJourney->all(),
+        ];
+    }
+
+    protected function summarizeBeneficiaryJourneyRow(Project $project, ProjectLocation $location, ProjectEnrollment $enrollment): array
+    {
+        $beneficiary = $enrollment->beneficiary;
+        $supportCases = $beneficiary->supportCases
+            ->filter(fn (SupportCase $case) => (int) ($case->project_id ?? 0) === (int) $project->id)
+            ->values();
+        $assessmentItems = $supportCases->flatMap(fn (SupportCase $case) => $case->assessmentItems);
+        $readinessActions = $supportCases->flatMap(fn (SupportCase $case) => $case->readinessActions);
+        $missingEvidenceTypes = $assessmentItems
+            ->filter(fn (AssessmentItem $item) => $item->is_blocking && ! in_array($item->status, ['verified', 'waived_with_reason', 'not_applicable'], true))
+            ->map(fn (AssessmentItem $item) => $item->evidence_type ?: ($item->requirement_snapshot['name'] ?? 'Requirement'))
+            ->filter()
+            ->unique()
+            ->values();
+
+        $completedMilestones = $location->milestoneAssessments
+            ->where('beneficiary_id', $beneficiary->id)
+            ->where('status', 'completed')
+            ->pluck('project_milestone_id')
+            ->unique()
+            ->count();
+        $attendanceEntries = $location->attendanceRegisters
+            ->flatMap(fn ($register) => $register->entries)
+            ->where('beneficiary_id', $beneficiary->id);
+        $attendedEntries = $attendanceEntries->whereIn('status', ['present', 'excused'])->count();
+        $attendanceRate = $this->percentage($attendedEntries, $attendanceEntries->count());
+        $evidenceCount = $beneficiary->evidenceItems->count();
+        $openSupportCases = $supportCases->whereNull('closed_at')->count();
+        $openReadinessActions = $readinessActions->where('status', 'open')->count();
+        $evidenceGapCount = $missingEvidenceTypes->count();
+        $riskScore = ($evidenceGapCount * 3)
+            + ($openReadinessActions * 2)
+            + $openSupportCases
+            + ($attendanceEntries->isNotEmpty() && $attendanceRate < 80 ? 1 : 0);
+
+        return [
+            'beneficiary_id' => $beneficiary->id,
+            'beneficiary_name' => trim($beneficiary->name.' '.$beneficiary->surname),
+            'enrollment_status' => $enrollment->status,
+            'attendance_status' => $beneficiary->attendance_status,
+            'support_case_count' => $supportCases->count(),
+            'open_support_cases' => $openSupportCases,
+            'evidence_count' => $evidenceCount,
+            'evidence_gap_count' => $evidenceGapCount,
+            'missing_evidence' => $missingEvidenceTypes->all(),
+            'open_readiness_actions' => $openReadinessActions,
+            'completed_milestone_assessments' => $completedMilestones,
+            'attendance_rate' => $attendanceRate,
+            'risk_score' => $riskScore,
         ];
     }
 

@@ -3,6 +3,7 @@
 use App\Domains\TaskManagement\Jobs\SendTaskManagementReminderNotificationsJob;
 use App\Domains\TaskManagement\Services\SupportTicketService;
 use App\Domains\TaskManagement\Services\WorkTaskService;
+use App\Domains\CitizenAccess\Services\CitizenAccessCatalogueService;
 use Database\Seeders\AccessControlSeeder;
 use Database\Seeders\StaffDepartmentsSeeder;
 use Database\Seeders\SuperAdminUserSeeder;
@@ -34,6 +35,16 @@ Artisan::command('access-control:resync', function () {
 
     $this->info('Access-control re-sync complete.');
 })->purpose('Safely re-sync departments, roles, permissions, and the seeded super admin user.');
+
+Artisan::command('citizen-access:seed-catalogue', function () {
+    $this->info('Seeding the production-safe Citizen Access catalogue. No operational beneficiary, intake, case, application, or outcome records will be deleted.');
+
+    $counts = app(CitizenAccessCatalogueService::class)->seed();
+
+    foreach ($counts as $key => $value) {
+        $this->line("{$key}: {$value}");
+    }
+})->purpose('Safely create or update the canonical Citizen Access offering catalogue.');
 
 Artisan::command('task-management:send-reminders {--now : Run reminders immediately instead of queueing the job}', function () {
     if ($this->option('now')) {

@@ -6,8 +6,10 @@ use App\Domains\Beneficiaries\Models\Beneficiary;
 use App\Domains\Beneficiaries\Support\BeneficiaryIdentityMatcher;
 use App\Domains\CitizenAccess\Models\Intake;
 use App\Domains\CitizenAccess\Models\Opportunity;
+use App\Domains\Enterprises\Models\Enterprise;
 use App\Domains\Projects\Models\ProjectEnrollment;
 use App\Domains\Projects\Services\ProjectService;
+use App\Models\NextOfKin;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -24,6 +26,8 @@ class CitizenAccessIntakeService
 
     public function createPublicIntake(array $data, ?string $ipAddress = null, ?string $userAgent = null): Intake
     {
+        $data['recipient_context'] = $this->selectedRecipientContext($data);
+        $data['submission_context'] = $data['submission_context'] ?? ($data['recipient_context'] === 'child' ? 'parent_guardian' : ($data['recipient_context'] === 'enterprise' ? 'enterprise_representative' : 'self'));
         $existing = Intake::query()->where('idempotency_key', $data['idempotency_key'])->first();
         if ($existing) {
             return $existing->load(['needs.stream', 'needs.opportunity']);
@@ -55,9 +59,15 @@ class CitizenAccessIntakeService
                 'correlation_id' => $data['correlation_id'] ?? null,
                 'duplicate_candidates' => $this->duplicateCandidates($data),
                 'meta' => [
+                    'submission_context' => $data['submission_context'] ?? 'self',
+                    'recipient_context' => $data['recipient_context'] ?? 'person',
+                    'requester' => $this->requesterSnapshot($data),
+                    'beneficiary' => $this->beneficiarySnapshot($data),
+                    'enterprise' => $this->enterpriseSnapshot($data),
                     'current_position' => $data['current_position'] ?? null,
                     'preferred_contact_time' => $data['preferred_contact_time'] ?? null,
                     'heard_about_poa' => $data['heard_about_poa'] ?? null,
+                    'consent_to_process_data' => (bool) ($data['consent_to_process_data'] ?? false),
                     'information_accuracy_confirmed' => (bool) ($data['information_accuracy_confirmed'] ?? false),
                 ],
             ]);
@@ -91,6 +101,17 @@ class CitizenAccessIntakeService
     public function convertToBeneficiary(Intake $intake, array $data, User $actor): Beneficiary
     {
         if (in_array($intake->status, ['converted', 'linked_to_existing_beneficiary'], true)) {
+            if ($this->recipientContext($intake) === 'enterprise') {
+                $enterprise = $this->resolveEnterprise($intake);
+
+                return DB::transaction(function () use ($intake, $enterprise, $actor) {
+                    $freshIntake = $intake->fresh(['needs.opportunity']);
+                    $this->createEnterpriseOfferingWorkflow($freshIntake, $enterprise, $actor);
+
+                    return $this->enterpriseContactBeneficiary($freshIntake, [], $actor, $freshIntake->needs->first()?->opportunity);
+                });
+            }
+
             $beneficiary = Beneficiary::query()->findOrFail((int) ($intake->converted_beneficiary_id ?: $intake->linked_beneficiary_id));
 
             return DB::transaction(function () use ($intake, $beneficiary, $actor) {
@@ -104,24 +125,42 @@ class CitizenAccessIntakeService
             $intake->loadMissing(['needs.opportunity']);
             $configuredNeeds = $intake->needs->filter(fn ($need) => $need->opportunity !== null);
             $primaryOpportunity = $configuredNeeds->first()?->opportunity;
+            $recipientContext = $this->recipientContext($intake);
 
             if ($configuredNeeds->isEmpty() && empty($data['project_id'])) {
                 throw ValidationException::withMessages(['project_id' => ['Select a project when converting an intake without configured offerings.']]);
             }
 
+            if ($recipientContext === 'enterprise') {
+                $enterprise = $this->resolveEnterprise($intake);
+                $this->createEnterpriseOfferingWorkflow($intake, $enterprise, $actor);
+                $contactBeneficiary = $this->enterpriseContactBeneficiary($intake, $data, $actor, $primaryOpportunity);
+                $intake->update([
+                    'status' => 'converted',
+                    'linked_beneficiary_id' => $contactBeneficiary->id,
+                    'converted_at' => now(),
+                    'converted_by_user_id' => $actor->id,
+                ]);
+                $this->audit->record('intake.converted_to_enterprise', $intake, $actor, ['enterprise_id' => $enterprise->id]);
+
+                return $contactBeneficiary;
+            }
+
+            $beneficiarySnapshot = $this->recipientBeneficiarySnapshot($intake);
             $matched = $this->identityMatcher->findMatch([
-                'name' => $intake->first_name,
-                'surname' => $intake->surname,
-                'email' => $intake->email,
-                'phone' => $intake->mobile_number,
+                'name' => $beneficiarySnapshot['first_name'],
+                'surname' => $beneficiarySnapshot['surname'],
+                'dob' => $beneficiarySnapshot['date_of_birth'] ?? null,
+                'email' => $beneficiarySnapshot['email'] ?? null,
+                'phone' => $beneficiarySnapshot['mobile_number'] ?? null,
             ]);
 
             $beneficiary = $matched ?: Beneficiary::query()->create([
-                'name' => $intake->first_name,
-                'surname' => $intake->surname,
-                'dob' => $intake->date_of_birth,
-                'email' => $intake->email,
-                'phone' => $intake->mobile_number,
+                'name' => $beneficiarySnapshot['first_name'],
+                'surname' => $beneficiarySnapshot['surname'],
+                'dob' => $beneficiarySnapshot['date_of_birth'] ?? null,
+                'email' => $beneficiarySnapshot['email'] ?? null,
+                'phone' => $beneficiarySnapshot['mobile_number'] ?? null,
                 'project_id' => $primaryOpportunity?->project_id ?? $data['project_id'],
                 'program_id' => $primaryOpportunity?->program_id ?? ($data['program_id'] ?? null),
                 'province_id' => $data['province_id'] ?? null,
@@ -130,6 +169,7 @@ class CitizenAccessIntakeService
                 'created_by' => $actor->id,
                 'updated_by' => $actor->id,
             ]);
+            $this->syncNextOfKinForRequester($intake, $beneficiary);
 
             if ($primaryOpportunity && ((int) $beneficiary->project_id !== (int) $primaryOpportunity->project_id || (int) $beneficiary->program_id !== (int) $primaryOpportunity->program_id)) {
                 $beneficiary->update([
@@ -223,6 +263,49 @@ class CitizenAccessIntakeService
         }
     }
 
+    private function createEnterpriseOfferingWorkflow(Intake $intake, Enterprise $enterprise, User $actor): void
+    {
+        $intake->loadMissing(['needs.opportunity.project', 'needs.opportunity.projectLocation', 'needs.opportunity.requirementTemplate']);
+
+        foreach ($intake->needs as $need) {
+            $opportunity = $need->opportunity;
+            if (! $opportunity) {
+                continue;
+            }
+
+            $this->ensureCompleteOffering($opportunity);
+
+            $case = \App\Domains\CitizenAccess\Models\SupportCase::query()
+                ->where('enterprise_id', $enterprise->id)
+                ->where('intake_id', $intake->id)
+                ->where('opportunity_id', $opportunity->id)
+                ->first();
+
+            if (! $case) {
+                $case = $this->caseService->createEnterpriseCase($enterprise, [
+                    'intake_id' => $intake->id,
+                    'program_id' => $opportunity->program_id,
+                    'project_id' => $opportunity->project_id,
+                    'project_location_id' => $opportunity->project_location_id,
+                    'service_stream_id' => $opportunity->service_stream_id,
+                    'institution_id' => $opportunity->institution_id,
+                    'opportunity_id' => $opportunity->id,
+                    'template_version_id' => $opportunity->latestPublishedTemplateVersion()?->id,
+                    'assigned_to_user_id' => $intake->assigned_to_user_id ?: $actor->id,
+                    'priority' => $intake->priority,
+                ], $actor);
+            } elseif ($case->assessmentItems()->doesntExist() && ($version = $opportunity->latestPublishedTemplateVersion())) {
+                $this->caseService->applyTemplate($case, $version->id, $actor);
+            }
+
+            $this->audit->record('offering.workflow_synced', $case, $actor, [
+                'intake_id' => $intake->id,
+                'opportunity_id' => $opportunity->id,
+                'enterprise_id' => $enterprise->id,
+            ]);
+        }
+    }
+
     private function ensureEnrollment(Beneficiary $beneficiary, int $projectId, ?int $projectLocationId): ?ProjectEnrollment
     {
         if (! $projectLocationId) {
@@ -291,6 +374,16 @@ class CitizenAccessIntakeService
             throw ValidationException::withMessages(['selected_needs' => ['One or more selected offerings are no longer available. Refresh the page and choose again.']]);
         }
 
+        $recipientContexts = $offerings
+            ->map(fn (Opportunity $opportunity) => $opportunity->metadata['recipient_context'] ?? 'person')
+            ->unique()
+            ->values();
+        if ($recipientContexts->contains('enterprise') && $recipientContexts->count() > 1) {
+            throw ValidationException::withMessages([
+                'selected_needs' => ['Choose offerings for one applicant or recipient type per submission. Use a separate form for a different child, adult, or business.'],
+            ]);
+        }
+
         foreach ($normalized as $slug) {
             $opportunity = $offerings->get($slug);
             $intake->needs()->create([
@@ -302,13 +395,44 @@ class CitizenAccessIntakeService
         }
     }
 
+    private function selectedRecipientContext(array $data): string
+    {
+        $requested = $data['recipient_context'] ?? 'person';
+        $slugs = collect($data['selected_needs'] ?? [])
+            ->map(fn ($need) => Str::slug((string) $need))
+            ->filter()
+            ->unique()
+            ->values();
+
+        $contexts = Opportunity::query()
+            ->publishedPublic()
+            ->whereIn('public_slug', $slugs->all())
+            ->get(['metadata'])
+            ->map(fn (Opportunity $opportunity) => $opportunity->metadata['recipient_context'] ?? 'person')
+            ->unique()
+            ->values();
+
+        if ($contexts->contains('enterprise')) {
+            return 'enterprise';
+        }
+
+        if ($contexts->contains('child') || $requested === 'child') {
+            return 'child';
+        }
+
+        return 'person';
+    }
+
     private function duplicateCandidates(array $data): array
     {
+        $beneficiary = $this->beneficiarySnapshot($data);
+        $attributes = $beneficiary ?: $this->requesterSnapshot($data);
         $candidate = $this->identityMatcher->findMatch([
-            'name' => $data['first_name'] ?? null,
-            'surname' => $data['surname'] ?? null,
-            'email' => $data['email'] ?? null,
-            'phone' => $data['mobile_number'] ?? null,
+            'name' => $attributes['first_name'] ?? null,
+            'surname' => $attributes['surname'] ?? null,
+            'dob' => $attributes['date_of_birth'] ?? null,
+            'email' => $attributes['email'] ?? null,
+            'phone' => $attributes['mobile_number'] ?? null,
         ]);
 
         return $candidate ? [[
@@ -316,6 +440,171 @@ class CitizenAccessIntakeService
             'name' => trim($candidate->name.' '.$candidate->surname),
             'match_basis' => 'safe_contact_or_identity_match',
         ]] : [];
+    }
+
+    private function requesterSnapshot(array $data): array
+    {
+        return [
+            'first_name' => $data['first_name'] ?? null,
+            'surname' => $data['surname'] ?? null,
+            'mobile_number' => $data['mobile_number'] ?? null,
+            'email' => $data['email'] ?? null,
+            'relationship_to_beneficiary' => $data['beneficiary_relationship'] ?? null,
+        ];
+    }
+
+    private function beneficiarySnapshot(array $data): ?array
+    {
+        if (($data['recipient_context'] ?? 'person') !== 'child') {
+            return null;
+        }
+
+        return [
+            'first_name' => $data['beneficiary_first_name'] ?? null,
+            'surname' => $data['beneficiary_surname'] ?? null,
+            'date_of_birth' => $data['beneficiary_date_of_birth'] ?? null,
+            'grade' => $data['beneficiary_grade'] ?? null,
+            'school_year' => $data['beneficiary_school_year'] ?? null,
+            'school_name' => $data['beneficiary_school_name'] ?? null,
+            'relationship' => $data['beneficiary_relationship'] ?? null,
+            'mobile_number' => null,
+            'email' => null,
+        ];
+    }
+
+    private function enterpriseSnapshot(array $data): ?array
+    {
+        if (($data['recipient_context'] ?? 'person') !== 'enterprise') {
+            return null;
+        }
+
+        return [
+            'name' => $data['enterprise_name'] ?? null,
+            'registration_number' => $data['enterprise_registration_number'] ?? null,
+            'sector' => $data['enterprise_sector'] ?? null,
+            'registration_status' => $data['enterprise_registration_status'] ?? null,
+        ];
+    }
+
+    private function recipientContext(Intake $intake): string
+    {
+        $context = $intake->meta['recipient_context'] ?? 'person';
+
+        return in_array($context, ['person', 'child', 'enterprise'], true) ? $context : 'person';
+    }
+
+    private function recipientBeneficiarySnapshot(Intake $intake): array
+    {
+        if ($this->recipientContext($intake) === 'child') {
+            $beneficiary = $intake->meta['beneficiary'] ?? [];
+
+            return [
+                'first_name' => $beneficiary['first_name'] ?? $intake->first_name,
+                'surname' => $beneficiary['surname'] ?? $intake->surname,
+                'date_of_birth' => $beneficiary['date_of_birth'] ?? null,
+                'mobile_number' => null,
+                'email' => null,
+            ];
+        }
+
+        return [
+            'first_name' => $intake->first_name,
+            'surname' => $intake->surname,
+            'date_of_birth' => $intake->date_of_birth?->format('Y-m-d'),
+            'mobile_number' => $intake->mobile_number,
+            'email' => $intake->email,
+        ];
+    }
+
+    private function syncNextOfKinForRequester(Intake $intake, Beneficiary $beneficiary): void
+    {
+        if ($this->recipientContext($intake) !== 'child') {
+            return;
+        }
+
+        $requester = $intake->meta['requester'] ?? [];
+        if (blank($requester['first_name'] ?? null) && blank($requester['surname'] ?? null) && blank($requester['mobile_number'] ?? null)) {
+            return;
+        }
+
+        $nextOfKin = $beneficiary->nextOfKin ?: new NextOfKin();
+        $nextOfKin->fill([
+            'name' => $requester['first_name'] ?? null,
+            'surname' => $requester['surname'] ?? null,
+            'relationship' => $requester['relationship_to_beneficiary'] ?? 'Parent or guardian',
+            'phone' => $requester['mobile_number'] ?? null,
+            'email' => $requester['email'] ?? null,
+        ]);
+        $nextOfKin->save();
+
+        if ((int) $beneficiary->next_of_kin_id !== (int) $nextOfKin->id) {
+            $beneficiary->update(['next_of_kin_id' => $nextOfKin->id]);
+        }
+    }
+
+    private function resolveEnterprise(Intake $intake): Enterprise
+    {
+        $enterprise = $intake->meta['enterprise'] ?? [];
+        $name = $enterprise['name'] ?? null;
+        if (blank($name)) {
+            throw ValidationException::withMessages(['enterprise_name' => ['Enter the business or enterprise name before conversion.']]);
+        }
+
+        $model = Enterprise::query()
+            ->when($enterprise['registration_number'] ?? null, fn ($query, $number) => $query->where('registration_number', $number))
+            ->when(blank($enterprise['registration_number'] ?? null), fn ($query) => $query->where('legal_name', $name))
+            ->first();
+
+        $model ??= Enterprise::query()->create([
+            'legal_name' => $name,
+            'registration_number' => $enterprise['registration_number'] ?? null,
+            'sector' => $enterprise['sector'] ?? null,
+            'registration_status' => $enterprise['registration_status'] ?? null,
+            'province' => $intake->province,
+            'municipality' => $intake->municipality,
+            'primary_email' => $intake->email,
+            'primary_telephone' => $intake->mobile_number,
+            'is_active' => true,
+        ]);
+
+        $requester = $intake->meta['requester'] ?? [];
+        $model->people()->updateOrCreate([
+            'person_email' => $requester['email'] ?? null,
+            'person_telephone' => $requester['mobile_number'] ?? null,
+            'role' => 'public_intake_contact',
+        ], [
+            'person_name' => trim(($requester['first_name'] ?? '').' '.($requester['surname'] ?? '')),
+            'is_primary_contact' => true,
+            'is_authorised_representative' => true,
+            'is_active' => true,
+            'notes' => 'Created from Citizen Access public intake '.$intake->public_reference,
+        ]);
+
+        return $model->refresh();
+    }
+
+    private function enterpriseContactBeneficiary(Intake $intake, array $data, User $actor, ?Opportunity $primaryOpportunity): Beneficiary
+    {
+        $matched = $this->identityMatcher->findMatch([
+            'name' => $intake->first_name,
+            'surname' => $intake->surname,
+            'email' => $intake->email,
+            'phone' => $intake->mobile_number,
+        ]);
+
+        return $matched ?: Beneficiary::query()->create([
+            'name' => $intake->first_name,
+            'surname' => $intake->surname,
+            'email' => $intake->email,
+            'phone' => $intake->mobile_number,
+            'project_id' => $primaryOpportunity?->project_id ?? $data['project_id'],
+            'program_id' => $primaryOpportunity?->program_id ?? ($data['program_id'] ?? null),
+            'province_id' => $data['province_id'] ?? null,
+            'participation_status' => 'registered',
+            'attendance_status' => 'active',
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
     }
 
     private function nextReference(): string

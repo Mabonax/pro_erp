@@ -127,6 +127,7 @@ class ProjectController extends Controller
             'milestones' => $milestones,
             'progress' => $progress,
             'locations' => $progress['locations'],
+            'beneficiaryJourney' => $progress['journey'],
             'attendanceTrend' => $this->attendanceTrend($model),
             'history' => $model->history->map(fn (ProjectHistory $history) => app(\App\Domains\Projects\Services\ProjectHistoryService::class)->map($history))->values(),
             'canManageProjects' => (bool) $request->user()?->can('update', $model),

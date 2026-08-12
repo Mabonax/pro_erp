@@ -15,10 +15,12 @@ use App\Domains\BusinessDevelopment\Controllers\BdsIncubateeKpiController;
 use App\Domains\BusinessDevelopment\Controllers\BdsPitchSessionController;
 use App\Domains\CitizenAccess\Controllers\CitizenAccessAdminController;
 use App\Domains\CitizenAccess\Controllers\IntakeController as CitizenAccessIntakeController;
+use App\Domains\CitizenAccess\Controllers\OfferingController as CitizenAccessOfferingController;
 use App\Domains\CitizenAccess\Controllers\SupportCaseController as CitizenAccessSupportCaseController;
 use App\Domains\Committees\Controllers\CommitteeController;
 use App\Domains\Compliance\Controllers\ComplianceRegistryController;
 use App\Domains\Documents\Controllers\DocumentLibraryController;
+use App\Domains\Enterprises\Controllers\EnterpriseController;
 use App\Domains\Events\Controllers\EventController;
 use App\Domains\Facilitators\Controllers\FacilitatorController;
 use App\Domains\Finance\Controllers\TravelClaimController;
@@ -90,9 +92,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('beneficiaries/import', [BeneficiaryController::class, 'import'])
         ->middleware($managePermission('beneficiaries'))
         ->name('beneficiaries.import');
+    Route::post('beneficiaries/{beneficiary}/evidence', [BeneficiaryController::class, 'storeEvidence'])
+        ->middleware($managePermission('beneficiaries'))
+        ->whereNumber('beneficiary')
+        ->name('beneficiaries.evidence.store');
     Route::resource('beneficiaries', BeneficiaryController::class)
         ->middlewareFor(['index', 'show'], $viewPermission('beneficiaries'))
         ->middlewareFor(['create', 'store', 'edit', 'update', 'destroy'], $managePermission('beneficiaries'));
+
+    Route::post('enterprises/{enterprise}/people', [EnterpriseController::class, 'storePerson'])
+        ->middleware($managePermission('citizen-access'))
+        ->whereNumber('enterprise')
+        ->name('enterprises.people.store');
+    Route::post('enterprises/{enterprise}/evidence', [EnterpriseController::class, 'storeEvidence'])
+        ->middleware($managePermission('citizen-access'))
+        ->whereNumber('enterprise')
+        ->name('enterprises.evidence.store');
+    Route::resource('enterprises', EnterpriseController::class)
+        ->middlewareFor(['index', 'show'], $viewPermission('citizen-access'))
+        ->middlewareFor(['create', 'store', 'edit', 'update', 'destroy'], $managePermission('citizen-access'))
+        ->except(['destroy']);
 
     Route::prefix('citizen-access')
         ->name('citizen-access.')
@@ -112,11 +131,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('cases/{case}/template', [CitizenAccessSupportCaseController::class, 'applyTemplate'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.template');
             Route::post('cases/{case}/readiness', [CitizenAccessSupportCaseController::class, 'recalculate'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.readiness');
             Route::post('cases/{case}/activities', [CitizenAccessSupportCaseController::class, 'storeActivity'])->middleware($managePermission('citizen-access'))->whereNumber('case')->name('cases.activities.store');
+            Route::post('cases/{case}/readiness-actions/{action}/task', [CitizenAccessSupportCaseController::class, 'createReadinessTask'])->middleware($managePermission('citizen-access'))->whereNumber(['case', 'action'])->name('cases.readiness-actions.task');
             Route::post('assessment-items/{item}/status', [CitizenAccessSupportCaseController::class, 'assessmentStatus'])->middleware($managePermission('citizen-access'))->whereNumber('item')->name('assessment-items.status');
 
+            Route::get('admin/offerings', [CitizenAccessOfferingController::class, 'index'])->name('admin.offerings.index');
+            Route::get('admin/offerings/create', [CitizenAccessOfferingController::class, 'create'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.create')->name('admin.offerings.create');
+            Route::post('admin/offerings', [CitizenAccessOfferingController::class, 'store'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.create')->name('admin.offerings.store');
+            Route::get('admin/offerings/{offering}', [CitizenAccessOfferingController::class, 'show'])->whereNumber('offering')->name('admin.offerings.show');
+            Route::get('admin/offerings/{offering}/edit', [CitizenAccessOfferingController::class, 'edit'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.update')->whereNumber('offering')->name('admin.offerings.edit');
+            Route::put('admin/offerings/{offering}', [CitizenAccessOfferingController::class, 'update'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.update')->whereNumber('offering')->name('admin.offerings.update');
+            Route::post('admin/offerings/{offering}/publish', [CitizenAccessOfferingController::class, 'publish'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.publish')->whereNumber('offering')->name('admin.offerings.publish');
+            Route::post('admin/offerings/{offering}/unpublish', [CitizenAccessOfferingController::class, 'unpublish'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.publish')->whereNumber('offering')->name('admin.offerings.unpublish');
+            Route::post('admin/offerings/{offering}/activate', [CitizenAccessOfferingController::class, 'activate'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.update')->whereNumber('offering')->name('admin.offerings.activate');
+            Route::post('admin/offerings/{offering}/deactivate', [CitizenAccessOfferingController::class, 'deactivate'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.update')->whereNumber('offering')->name('admin.offerings.deactivate');
+            Route::post('admin/offerings/{offering}/archive', [CitizenAccessOfferingController::class, 'archive'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.archive')->whereNumber('offering')->name('admin.offerings.archive');
+            Route::post('admin/offerings/{offering}/restore', [CitizenAccessOfferingController::class, 'restore'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.archive')->whereNumber('offering')->name('admin.offerings.restore');
+            Route::post('admin/offerings/{offering}/duplicate', [CitizenAccessOfferingController::class, 'duplicate'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.create')->whereNumber('offering')->name('admin.offerings.duplicate');
+            Route::delete('admin/offerings/{offering}', [CitizenAccessOfferingController::class, 'destroy'])->middleware('permission:domain.citizen-access.manage|citizen-access.offerings.delete')->whereNumber('offering')->name('admin.offerings.destroy');
+
             Route::get('admin', [CitizenAccessAdminController::class, 'index'])->middleware($managePermission('citizen-access'))->name('admin.index');
+            Route::post('admin/program-categories', [CitizenAccessAdminController::class, 'storeProgramCategory'])->middleware($managePermission('citizen-access'))->name('admin.program-categories.store');
             Route::post('admin/service-streams', [CitizenAccessAdminController::class, 'storeStream'])->middleware($managePermission('citizen-access'))->name('admin.service-streams.store');
             Route::post('admin/institutions', [CitizenAccessAdminController::class, 'storeInstitution'])->middleware($managePermission('citizen-access'))->name('admin.institutions.store');
+            Route::post('admin/service-pathways', [CitizenAccessAdminController::class, 'storePathway'])->middleware($managePermission('citizen-access'))->name('admin.service-pathways.store');
+            Route::post('admin/service-pathways/{pathway}/versions', [CitizenAccessAdminController::class, 'storePathwayVersion'])->middleware($managePermission('citizen-access'))->whereNumber('pathway')->name('admin.service-pathways.versions.store');
+            Route::post('admin/enterprises', [CitizenAccessAdminController::class, 'storeEnterprise'])->middleware($managePermission('citizen-access'))->name('admin.enterprises.store');
+            Route::post('admin/enterprises/{enterprise}/people', [CitizenAccessAdminController::class, 'storeEnterprisePerson'])->middleware($managePermission('citizen-access'))->whereNumber('enterprise')->name('admin.enterprises.people.store');
             Route::post('admin/opportunities', [CitizenAccessAdminController::class, 'storeOpportunity'])->middleware($managePermission('citizen-access'))->name('admin.opportunities.store');
             Route::put('admin/opportunities/{opportunity}', [CitizenAccessAdminController::class, 'updateOpportunity'])->middleware($managePermission('citizen-access'))->whereNumber('opportunity')->name('admin.opportunities.update');
             Route::post('admin/templates', [CitizenAccessAdminController::class, 'storeTemplate'])->middleware($managePermission('citizen-access'))->name('admin.templates.store');
@@ -523,6 +563,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware('auth')
         ->whereNumber('file')
         ->name('organization.document-library.files.download');
+    Route::get('organization/document-library/files/{file}/preview', [DocumentLibraryController::class, 'previewFile'])
+        ->middleware('auth')
+        ->whereNumber('file')
+        ->name('organization.document-library.files.preview');
     Route::post('organization/document-library/files/{file}/publish-to-vault', [DocumentLibraryController::class, 'publishToVault'])
         ->middleware('auth')
         ->whereNumber('file')

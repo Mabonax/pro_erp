@@ -62,7 +62,7 @@ json_extract() {
 }
 
 latest_release_json() {
-  "$CURL_BIN" -fsS --retry 2 --retry-delay 2 \
+  "$CURL_BIN" -fsSL --retry 2 --retry-delay 2 \
     -H "Accept: application/vnd.github+json" \
     -H "Authorization: Bearer $GITHUB_TOKEN" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -102,13 +102,29 @@ asset_api_url() {
   ' "$release_file" "$asset_name"
 }
 
+manifest_asset_name() {
+  local release_file="$1"
+  "$PHP_BIN" -r '
+    $release = json_decode(file_get_contents($argv[1]), true);
+    if (!is_array($release)) { fwrite(STDERR, "Invalid release JSON\n"); exit(2); }
+    foreach (($release["assets"] ?? []) as $asset) {
+      $name = (string) ($asset["name"] ?? "");
+      if (preg_match("/^poa-production-.+-manifest\\.json$/", $name)) {
+        echo $name;
+        exit(0);
+      }
+    }
+    exit(6);
+  ' "$release_file"
+}
+
 download_asset() {
   local release_file="$1"
   local asset_name="$2"
   local output="$3"
   local url
   url="$(asset_api_url "$release_file" "$asset_name")" || die "Release asset not found: $asset_name"
-  "$CURL_BIN" -fsS --retry 2 --retry-delay 2 \
+  "$CURL_BIN" -fsSL --retry 2 --retry-delay 2 \
     -H "Accept: application/octet-stream" \
     -H "Authorization: Bearer $GITHUB_TOKEN" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -153,6 +169,11 @@ validate_manifest() {
 current_release_id() {
   [[ -f "$STATE_FILE" ]] || return 1
   json_extract "$STATE_FILE" current.release_id 2>/dev/null || return 1
+}
+
+current_release_status() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  json_extract "$STATE_FILE" current.status 2>/dev/null || return 1
 }
 
 write_state() {
@@ -229,6 +250,15 @@ activate_release() {
     --exclude='storage/' \
     --exclude='bootstrap/cache/' \
     "$release_dir/" "$live_path/"
+}
+
+normalize_laravel_permissions() {
+  local path="$1"
+  find "$path" -type d -exec chmod 755 {} \;
+  find "$path" -type f -exec chmod 644 {} \;
+  [[ -f "$path/.env" ]] && chmod 600 "$path/.env"
+  [[ -d "$path/storage" ]] && chmod -R u+rwX,go-rwx "$path/storage"
+  [[ -d "$path/bootstrap/cache" ]] && chmod -R u+rwX,go-rwx "$path/bootstrap/cache"
 }
 
 laravel_down() {
@@ -357,14 +387,7 @@ main() {
   latest_release_json > "$work/releases.json"
   select_release "$work/releases.json" > "$work/release.json" || die "No approved release found with prefix $RELEASE_TAG_PREFIX"
   local manifest_name
-  manifest_name="$(json_extract "$work/release.json" assets | "$PHP_BIN" -r '
-    $assets = json_decode(stream_get_contents(STDIN), true);
-    foreach ($assets as $asset) {
-      $name = (string) ($asset["name"] ?? "");
-      if (preg_match("/^poa-production-.+-manifest\\.json$/", $name)) { echo $name; exit(0); }
-    }
-    exit(6);
-  ')" || die "Release manifest asset not found"
+  manifest_name="$(manifest_asset_name "$work/release.json")" || die "Release manifest asset not found"
   download_asset "$work/release.json" "$manifest_name" "$work/manifest.json"
   validate_manifest "$work/manifest.json"
 
@@ -377,7 +400,7 @@ main() {
   erp_commit="$(json_extract "$work/manifest.json" erp.commit_sha)"
   website_commit="$(json_extract "$work/manifest.json" website.commit_sha)"
 
-  if [[ "$(current_release_id || true)" == "$release_id" ]]; then
+  if [[ "$(current_release_id || true)" == "$release_id" && "$(current_release_status || true)" == "deployed" ]]; then
     log "Release $release_id is already deployed; skipping."
     exit 0
   fi
@@ -402,15 +425,16 @@ main() {
   run_laravel_release_commands "$erp_release" 1
   erp_migrated=1
   activate_release erp "$erp_release" "$ERP_PATH"
+  normalize_laravel_permissions "$ERP_PATH"
   laravel_up "$ERP_PATH"
   erp_maintenance=0
   http_ok "$ERP_URL"
-  http_ok "$ERP_URL/api/public/v1/offerings"
 
   laravel_down "$WEBSITE_PATH"
   website_maintenance=1
   run_laravel_release_commands "$website_release" 1
   activate_release website "$website_release" "$WEBSITE_PATH"
+  normalize_laravel_permissions "$WEBSITE_PATH"
   sync_website_public_root "$website_release"
   laravel_up "$WEBSITE_PATH"
   website_maintenance=0

@@ -109,6 +109,80 @@ class BeneficiaryResource extends JsonResource
                         'enrolled_at' => $enrollment->enrolled_at?->format('Y-m-d H:i:s'),
                     ]);
             }),
+            'support_cases' => $this->whenLoaded('supportCases', function () {
+                return $this->supportCases
+                    ->sortByDesc(fn ($case) => optional($case->created_at)?->timestamp ?? 0)
+                    ->values()
+                    ->map(fn ($case) => [
+                        'id' => $case->id,
+                        'case_reference' => $case->case_reference,
+                        'service_stream' => $case->serviceStream?->name,
+                        'opportunity' => $case->opportunity?->name,
+                        'stage' => $case->stage,
+                        'priority' => $case->priority,
+                        'readiness_state' => $case->readiness_state,
+                        'readiness_percentage' => $case->readiness_percentage,
+                        'important_deadline' => $case->important_deadline?->format('Y-m-d'),
+                        'created_at' => $case->created_at?->format('Y-m-d H:i'),
+                    ]);
+            }),
+            'evidence_items' => $this->whenLoaded('evidenceItems', function () {
+                return $this->evidenceItems
+                    ->sortByDesc(fn ($item) => optional($item->created_at)?->timestamp ?? 0)
+                    ->values()
+                    ->map(fn ($item) => [
+                        'id' => $item->id,
+                        'document_file_id' => $item->document_file_id,
+                        'document_title' => $item->documentFile?->title,
+                        'document_original_name' => $item->documentFile?->original_name,
+                        'document_mime_type' => $item->documentFile?->mime_type,
+                        'document_size_bytes' => $item->documentFile?->size_bytes,
+                        'download_url' => $item->documentFile
+                            ? route('organization.document-library.files.download', $item->documentFile)
+                            : null,
+                        'preview_url' => $item->documentFile
+                            ? route('organization.document-library.files.preview', $item->documentFile)
+                            : null,
+                        'evidence_type' => $item->evidence_type,
+                        'issuer' => $item->issuer,
+                        'verification_status' => $item->verification_status,
+                        'issue_date' => $item->issue_date?->format('Y-m-d'),
+                        'expiry_date' => $item->expiry_date?->format('Y-m-d'),
+                        'sensitivity_classification' => $item->sensitivity_classification,
+                        'archive_status' => $item->archive_status,
+                        'created_at' => $item->created_at?->format('Y-m-d H:i'),
+                    ]);
+            }),
+            'milestone_assessments' => $this->whenLoaded('milestoneAssessments', function () {
+                return $this->milestoneAssessments
+                    ->sortByDesc(fn ($assessment) => optional($assessment->assessed_at ?? $assessment->created_at)?->timestamp ?? 0)
+                    ->values()
+                    ->map(fn ($assessment) => [
+                        'id' => $assessment->id,
+                        'milestone' => $assessment->milestone?->title,
+                        'project_id' => $assessment->milestone?->project_id,
+                        'project_name' => $assessment->milestone?->project?->name,
+                        'status' => $assessment->status,
+                        'score' => $assessment->score,
+                        'assessed_at' => $assessment->assessed_at?->format('Y-m-d H:i'),
+                    ]);
+            }),
+            'service_journey_summary' => [
+                'participation_count' => $this->whenLoaded('projectEnrollments', fn () => $this->projectEnrollments->count(), 0),
+                'support_case_count' => $this->whenLoaded('supportCases', fn () => $this->supportCases->count(), 0),
+                'open_support_case_count' => $this->whenLoaded(
+                    'supportCases',
+                    fn () => $this->supportCases->whereNull('closed_at')->count(),
+                    0
+                ),
+                'evidence_item_count' => $this->whenLoaded('evidenceItems', fn () => $this->evidenceItems->count(), 0),
+                'milestone_assessment_count' => $this->whenLoaded('milestoneAssessments', fn () => $this->milestoneAssessments->count(), 0),
+                'completed_milestone_assessment_count' => $this->whenLoaded(
+                    'milestoneAssessments',
+                    fn () => $this->milestoneAssessments->where('status', 'completed')->count(),
+                    0
+                ),
+            ],
 
             // Audit
             'created_by' => $this->created_by,

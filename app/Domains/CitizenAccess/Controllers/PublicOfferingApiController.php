@@ -19,15 +19,24 @@ class PublicOfferingApiController extends Controller
 
         $offerings = Opportunity::query()
             ->publishedPublic()
-            ->with(['serviceStream:id,name', 'institution:id,name'])
+            ->with(['serviceStream:id,name,slug,public_label,public_summary,public_display_order,sort_order', 'institution:id,name'])
             ->get()
             ->map(fn (Opportunity $opportunity) => [
                 'slug' => $opportunity->public_slug,
                 'title' => $opportunity->public_title,
                 'summary' => $opportunity->public_summary,
+                'support_area' => $opportunity->serviceStream ? [
+                    'slug' => $opportunity->serviceStream->slug,
+                    'label' => $opportunity->serviceStream->public_label ?: $opportunity->serviceStream->name,
+                    'summary' => $opportunity->serviceStream->public_summary ?: $opportunity->serviceStream->description,
+                    'display_order' => $opportunity->serviceStream->public_display_order ?: $opportunity->serviceStream->sort_order,
+                ] : null,
                 'service_stream' => $opportunity->serviceStream?->name,
                 'institution' => $opportunity->institution?->name,
                 'help_text' => $opportunity->public_help_text,
+                'recipient_context' => $opportunity->metadata['recipient_context'] ?? 'person',
+                'allows_guardian_submission' => (bool) ($opportunity->metadata['allows_guardian_submission'] ?? false),
+                'requires_beneficiary_details' => (bool) ($opportunity->metadata['requires_beneficiary_details'] ?? false),
                 'display_order' => $opportunity->display_order,
             ])
             ->values();

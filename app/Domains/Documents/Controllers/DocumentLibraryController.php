@@ -170,6 +170,13 @@ class DocumentLibraryController extends Controller
         return $this->fileService->downloadFile($file, request()->user());
     }
 
+    public function previewFile(DocumentFile $file): HttpResponse
+    {
+        $this->authorize('view', $file);
+
+        return $this->fileService->previewFile($file, request()->user());
+    }
+
     public function publishToVault(PublishDocumentFileToVaultRequest $request, DocumentFile $file)
     {
         $this->authorize('view', $file);

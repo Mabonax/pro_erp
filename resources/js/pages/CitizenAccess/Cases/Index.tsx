@@ -5,7 +5,7 @@ import { type BreadcrumbItem } from '@/types';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Citizen Access Cases', href: '/citizen-access/cases' }];
 
-export default function Index({ cases }: { cases: { data: Array<{ id: number; case_reference: string; beneficiary: string; service_stream: string; stage: string; readiness_state: string; readiness_percentage: number }> } }) {
+export default function Index({ cases }: { cases: { data: Array<{ id: number; case_reference: string; beneficiary?: string | null; enterprise?: string | null; recipient_name?: string | null; recipient_type?: string | null; service_stream: string; stage: string; readiness_state: string; readiness_percentage: number }> } }) {
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Citizen Access Cases" />
@@ -23,7 +23,10 @@ export default function Index({ cases }: { cases: { data: Array<{ id: number; ca
                             {cases.data.map((caseRecord) => (
                                 <tr key={caseRecord.id} className="border-b last:border-0">
                                     <td className="px-4 py-3 font-medium"><Link href={`/citizen-access/cases/${caseRecord.id}`}>{caseRecord.case_reference}</Link></td>
-                                    <td className="px-4 py-3">{caseRecord.beneficiary}</td>
+                                    <td className="px-4 py-3">
+                                        {caseRecord.recipient_name || caseRecord.beneficiary || caseRecord.enterprise || '-'}
+                                        <div className="text-xs text-muted-foreground">{caseRecord.recipient_type || 'person'}</div>
+                                    </td>
                                     <td className="px-4 py-3">{caseRecord.service_stream}</td>
                                     <td className="px-4 py-3">{caseRecord.stage.replaceAll('_', ' ')}</td>
                                     <td className="px-4 py-3">{caseRecord.readiness_state.replaceAll('_', ' ')} · {caseRecord.readiness_percentage}%</td>
